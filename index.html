@@ -11,19 +11,20 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
-        body { font-family: 'Inter', sans-serif; background-color: black; -webkit-tap-highlight-color: transparent; }
+        body { font-family: 'Inter', sans-serif; background-color: #000; -webkit-tap-highlight-color: transparent; }
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #27272a; border-radius: 10px; }
+        
+        .theme-transition { transition: background-color 0.4s ease, color 0.4s ease; }
     </style>
 </head>
 <body>
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect } = React;
+        const { useState, useEffect, useRef } = React;
         
-        // Lucide ikonlarını React içinde kullanmak için yardımcı bileşen
         const Icon = ({ name, size = 24, className = "" }) => {
             useEffect(() => { lucide.createIcons(); }, [name]);
             return <i data-lucide={name} style={{ width: size, height: size }} className={className}></i>;
@@ -33,215 +34,289 @@
             { id: 'payment', name: 'Banka/Kredi', icon: 'credit-card' },
             { id: 'transit', name: 'Ulaşım/Metro', icon: 'bus' },
             { id: 'id', name: 'Kimlik/Belge', icon: 'user' },
-            { id: 'loyalty', name: 'Restoran/Yemek', icon: 'coffee' }
+            { id: 'ticket', name: 'Bilet/Uçuş', icon: 'ticket' },
+            { id: 'loyalty', name: 'Kurum/Market', icon: 'coffee' }
+        ];
+
+        const CUSTOM_ICONS = ['star', 'heart', 'briefcase', 'gift', 'shopping-cart', 'music', 'camera', 'activity', 'anchor', 'book', 'car', 'dumbbell'];
+
+        const CARD_COLORS = [
+            'from-zinc-800 to-black', 'from-slate-600 to-slate-900',
+            'from-red-500 to-red-900', 'from-orange-400 to-orange-800',
+            'from-amber-400 to-amber-700', 'from-yellow-400 to-yellow-800',
+            'from-lime-400 to-lime-800', 'from-green-400 to-emerald-900',
+            'from-emerald-400 to-teal-800', 'from-teal-400 to-cyan-900',
+            'from-cyan-400 to-blue-800', 'from-sky-400 to-indigo-900',
+            'from-blue-500 to-indigo-900', 'from-indigo-500 to-purple-900',
+            'from-violet-500 to-fuchsia-900', 'from-purple-500 to-pink-900',
+            'from-fuchsia-500 to-rose-900', 'from-pink-500 to-rose-800',
+            'from-rose-500 to-red-900',
+            'from-indigo-500 via-purple-500 to-pink-500',
+            'from-cyan-400 via-blue-500 to-indigo-600'
         ];
 
         function App() {
-            const [cards, setCards] = useState(() => JSON.parse(localStorage.getItem('npm_v3_cards') || '[]'));
-            const [appPin, setAppPin] = useState(localStorage.getItem('npm_v3_pin'));
+            const [cards, setCards] = useState(() => JSON.parse(localStorage.getItem('npm_v4_cards') || '[]'));
+            const [appPin, setAppPin] = useState(localStorage.getItem('npm_v4_pin'));
+            const [appTheme, setAppTheme] = useState(() => localStorage.getItem('npm_v4_theme') || 'dark');
+            
+            // Kategori ve İsim Kaydı Sistemi
+            const [savedUserName, setSavedUserName] = useState(() => localStorage.getItem('npm_saved_user_name') || '');
+            const [customCategories, setCustomCategories] = useState(() => JSON.parse(localStorage.getItem('npm_v4_cats') || '[]'));
+            
+            const allCategories = [...INITIAL_CATEGORIES, ...customCategories];
             
             const [activeTab, setActiveTab] = useState('wallet');
             const [isLocked, setIsLocked] = useState(!!appPin);
             const [enteredPin, setEnteredPin] = useState('');
             const [selectedCard, setSelectedCard] = useState(null);
             
-            // UI State
+            // UI Modals
             const [showQrModal, setShowQrModal] = useState(false);
             const [showNfcModal, setShowNfcModal] = useState(false);
             const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
             const [showNfcInfo, setShowNfcInfo] = useState(false);
-            const [alertData, setAlertData] = useState(null); // Özel alert modalı { title, message }
-            
-            // AI State
-            const [aiInput, setAiInput] = useState('');
-            const [isAiLoading, setIsAiLoading] = useState(false);
-            const [showAiInput, setShowAiInput] = useState(false);
-            
-            // PIN Setup State
-            const [pinSetupStep, setPinSetupStep] = useState(0); // 0: kapalı, 1: yeni gir, 2: tekrarla
+            const [alertData, setAlertData] = useState(null);
+            const [namePromptCard, setNamePromptCard] = useState(null);
+            const [tempNameInput, setTempNameInput] = useState('');
+
+            // Kurumsal Sistem Modalları
+            const [showCorpLogin, setShowCorpLogin] = useState(false);
+            const [corpLoginPin, setCorpLoginPin] = useState('');
+            const [corpForm, setCorpForm] = useState({ categoryId: 'ticket', issuer: '', brandLogo: null, name: '', color: 'from-zinc-800 to-black', detailsPrefix: 'KOD-' });
+            const [corpNamesText, setCorpNamesText] = useState('');
+            const [bulkAmount, setBulkAmount] = useState(1);
+            const [corpQRs, setCorpQRs] = useState([]);
+            const [generatedCorpCards, setGeneratedCorpCards] = useState([]);
+            const corpLogoRef = useRef(null);
+            const corpQRsRef = useRef(null);
+
+            // Yeni Kategori Ekleme (Ayarlar)
+            const [newCatName, setNewCatName] = useState('');
+            const [newCatIcon, setNewCatIcon] = useState(CUSTOM_ICONS[0]);
+
+            const [pinSetupStep, setPinSetupStep] = useState(0);
             const [tempPin, setTempPin] = useState('');
 
-            const [newCard, setNewCard] = useState({ categoryId: 'payment', issuer: '', name: '', ownerName: '', details: '', color: 'from-zinc-800 to-black' });
+            const [newCard, setNewCard] = useState({ categoryId: 'payment', issuer: '', name: '', ownerName: '', details: '', color: 'from-zinc-800 to-black', photo: null, brandLogo: null });
+            
+            const fileInputRef = useRef(null);
+            const importInputRef = useRef(null);
 
-            useEffect(() => { localStorage.setItem('npm_v3_cards', JSON.stringify(cards)); }, [cards]);
-            useEffect(() => { if(appPin) localStorage.setItem('npm_v3_pin', appPin); else localStorage.removeItem('npm_v3_pin'); }, [appPin]);
+            useEffect(() => { localStorage.setItem('npm_v4_cards', JSON.stringify(cards)); }, [cards]);
+            useEffect(() => { if(appPin) localStorage.setItem('npm_v4_pin', appPin); else localStorage.removeItem('npm_v4_pin'); }, [appPin]);
+            useEffect(() => { localStorage.setItem('npm_v4_theme', appTheme); }, [appTheme]);
+            useEffect(() => { localStorage.setItem('npm_saved_user_name', savedUserName); }, [savedUserName]);
+            useEffect(() => { localStorage.setItem('npm_v4_cats', JSON.stringify(customCategories)); }, [customCategories]);
 
-            const handlePinInput = (num) => {
-                const updated = enteredPin + num;
-                setEnteredPin(updated);
-                
-                if (updated.length === 4) {
-                    if (isLocked) {
-                        if (updated === appPin) { setIsLocked(false); setEnteredPin(''); }
-                        else { setTimeout(() => setEnteredPin(''), 300); }
-                    } 
-                    else if (pinSetupStep === 1) {
-                        setTempPin(updated);
-                        setEnteredPin('');
-                        setPinSetupStep(2);
-                    } 
-                    else if (pinSetupStep === 2) {
-                        if (updated === tempPin) {
-                            setAppPin(tempPin);
-                            setPinSetupStep(0);
-                            setEnteredPin('');
-                            setTempPin('');
-                            setAlertData({ title: "Başarılı", message: "Uygulama PIN kodunuz başarıyla oluşturuldu." });
-                        } else {
-                            setAlertData({ title: "Hata", message: "Girdiğiniz PIN kodları uyuşmuyor. Lütfen tekrar deneyin." });
-                            setPinSetupStep(1);
-                            setEnteredPin('');
-                            setTempPin('');
-                        }
-                    }
-                }
+            // --- .npmwallet DIŞA AKTAR ---
+            const exportCard = (card) => {
+                try {
+                    const jsonStr = JSON.stringify(card);
+                    const encodedData = btoa(unescape(encodeURIComponent(jsonStr)));
+                    const npm5Content = `NPM5|${encodedData}`;
+                    const blob = new Blob([npm5Content], { type: 'text/plain' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `${card.name.replace(/\s+/g, '_')}_${Date.now()}.npmwallet`;
+                    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+                } catch (err) { setAlertData({ title: "Hata", message: "Kart dışa aktarılamadı." }); }
             };
 
-            const renderPinPad = (title, subtitle, isSetup = false) => (
-                <div className={`flex flex-col items-center justify-center px-10 ${isSetup ? 'absolute inset-0 z-[70] bg-zinc-950 animate-in slide-in-from-bottom' : 'h-screen bg-black text-white'}`}>
-                    <Icon name={isSetup ? "shield" : "lock"} size={48} className={isSetup ? "text-blue-500 mb-8" : "text-zinc-800 mb-8"} />
-                    <h2 className="text-2xl font-black mb-2 tracking-tight text-white">{title}</h2>
-                    <p className="text-zinc-500 mb-10 text-center text-sm">{subtitle}</p>
+            // --- .npmwallet İÇE AKTAR VE İSİM SORMA ---
+            const handleImportFile = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const content = event.target.result;
+                    if (content.startsWith("NPM5|")) {
+                        try {
+                            const base64Data = content.split('|')[1];
+                            const decodedStr = decodeURIComponent(escape(atob(base64Data)));
+                            const importedCard = JSON.parse(decodedStr);
+                            importedCard.id = Date.now().toString();
+                            
+                            if (!importedCard.ownerName || importedCard.ownerName.trim() === '') {
+                                setNamePromptCard(importedCard);
+                                setTempNameInput(savedUserName);
+                            } else {
+                                finalizeImport(importedCard);
+                            }
+                        } catch (err) { setAlertData({ title: "Dosya Bozuk", message: ".npmwallet dosyası hasarlı." }); }
+                    } else {
+                        setAlertData({ title: "Geçersiz", message: "Bu geçerli bir NPM Wallet dosyası değil." });
+                    }
+                    e.target.value = null;
+                };
+                reader.readAsText(file);
+            };
+
+            const finalizeImport = (cardToImport) => {
+                setCards(prev => [cardToImport, ...prev]);
+                setActiveTab('wallet');
+                setAlertData({ title: "Başarılı!", message: `"${cardToImport.name}" başarıyla cüzdana yüklendi!` });
+                setNamePromptCard(null);
+            };
+
+            const handleNamePromptSubmit = (useSaved) => {
+                const finalName = useSaved ? savedUserName : tempNameInput.toUpperCase();
+                if (!finalName.trim()) {
+                    setAlertData({title:"Uyarı", message:"Lütfen isminizi girin."}); return;
+                }
+                setSavedUserName(finalName);
+                finalizeImport({ ...namePromptCard, ownerName: finalName });
+            };
+
+            const resizeImage = (file, maxWidth, callback) => {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        let w = img.width; let h = img.height;
+                        if (w > maxWidth) { h = Math.round((h * maxWidth) / w); w = maxWidth; }
+                        canvas.width = w; canvas.height = h;
+                        const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0, w, h);
+                        callback(canvas.toDataURL('image/jpeg', 0.6));
+                    };
+                    img.src = event.target.result;
+                };
+                reader.readAsDataURL(file);
+            };
+
+            const handleImageUpload = (e) => {
+                if(e.target.files[0]) resizeImage(e.target.files[0], 600, (base64) => setNewCard({...newCard, photo: base64}));
+            };
+
+            // --- KURUMSAL TOPLU ÜRETİM FONKSİYONLARI ---
+            const handleCorpLogUpload = (e) => {
+                if(e.target.files[0]) resizeImage(e.target.files[0], 200, (base64) => setCorpForm({...corpForm, brandLogo: base64}));
+            };
+
+            const handleCorpQRsUpload = (e) => {
+                const files = Array.from(e.target.files).slice(0, 500);
+                setAlertData({title: "Yükleniyor", message: `${files.length} QR/Bilet fotoğrafı işleniyor, lütfen bekleyin...`});
+                let processed = 0; const newQRs = [];
+                if(files.length === 0) return;
+                files.forEach(file => {
+                    resizeImage(file, 500, (base64) => {
+                        newQRs.push(base64);
+                        processed++;
+                        if (processed === files.length) {
+                            setCorpQRs(newQRs);
+                            setAlertData({title: "Başarılı", message: `${files.length} QR/Bilet fotoğrafı hafızaya alındı!`});
+                        }
+                    });
+                });
+            };
+
+            const generateBulkCards = () => {
+                if (!corpForm.issuer || !corpForm.name) {
+                    setAlertData({title: "Eksik", message: "Marka Adı ve Kart Adı zorunludur."}); return;
+                }
+                const namesList = corpNamesText.split('\n').map(n => n.trim()).filter(n => n);
+                
+                let requestedCount = parseInt(bulkAmount);
+                if (isNaN(requestedCount) || requestedCount < 1) requestedCount = 1;
+                if (requestedCount > 500) requestedCount = 500;
+
+                const finalCount = Math.min(Math.max(requestedCount, namesList.length, corpQRs.length), 500);
+
+                const generated = [];
+                for(let i=0; i<finalCount; i++) {
+                    const catIcon = allCategories.find(c => c.id === corpForm.categoryId)?.icon || 'ticket';
+                    generated.push({
+                        id: 'corp_' + Date.now().toString() + i,
+                        categoryId: corpForm.categoryId,
+                        issuer: corpForm.issuer,
+                        name: corpForm.name,
+                        color: corpForm.color,
+                        icon: catIcon,
+                        brandLogo: corpForm.brandLogo,
+                        ownerName: namesList[i] || '', 
+                        details: corpForm.detailsPrefix + (i+1000).toString(),
+                        photo: corpQRs[i] || null
+                    });
+                }
+                setGeneratedCorpCards(generated);
+                setAlertData({title: "Toplu Üretim Tamamlandı", message: `Tam ${generated.length} adet kart oluşturuldu. İster fotoğraflı ister otomatik QR özellikli olarak kullanıma hazırdır.`});
+            };
+
+            const addCustomCategory = () => {
+                if(!newCatName.trim()) { setAlertData({title:"Hata", message:"Kategori adı girin."}); return; }
+                const newCat = { id: 'custom_' + Date.now(), name: newCatName, icon: newCatIcon };
+                setCustomCategories([...customCategories, newCat]);
+                setNewCatName('');
+                setAlertData({title:"Başarılı", message:"Kategori eklendi!"});
+            };
+
+            const getThemeClasses = () => {
+                switch(appTheme) {
+                    case 'light': return { bg: 'bg-slate-50', text: 'text-slate-900', card: 'bg-white border-slate-200 shadow-xl', input: 'bg-slate-100 border-slate-300 text-slate-900', nav: 'bg-white/90 border-slate-200' };
+                    case 'neon': return { bg: 'bg-zinc-950', text: 'text-cyan-400', card: 'bg-black border-cyan-900 shadow-[0_0_15px_rgba(34,211,238,0.1)]', input: 'bg-black border-cyan-900 text-cyan-400 focus:border-cyan-400 focus:shadow-[0_0_10px_rgba(34,211,238,0.5)]', nav: 'bg-black/90 border-cyan-900/50' };
+                    case 'dark': 
+                    default: return { bg: 'bg-zinc-950', text: 'text-white', card: 'bg-zinc-900 border-zinc-800', input: 'bg-zinc-900 border-zinc-800 text-white focus:border-white', nav: 'bg-zinc-950/95 border-white/5' };
+                }
+            };
+            const t = getThemeClasses();
+
+            if (isLocked) return (
+                <div className={`h-screen flex flex-col items-center justify-center px-10 ${t.bg} ${t.text} theme-transition`}>
+                    <Icon name="lock" size={48} className="mb-8 opacity-50" />
+                    <h2 className="text-2xl font-black mb-10 tracking-tight">Kilitli Cüzdan</h2>
                     <div className="flex gap-4 mb-12">
-                        {[0, 1, 2, 3].map(i => <div key={i} className={`w-4 h-4 rounded-full border-2 ${enteredPin.length > i ? 'bg-white border-white' : 'border-zinc-800'}`} />)}
+                        {[0, 1, 2, 3].map(i => <div key={i} className={`w-4 h-4 rounded-full border-2 ${enteredPin.length > i ? (appTheme === 'light' ? 'bg-slate-900 border-slate-900' : 'bg-white border-white') : 'border-current opacity-30'}`} />)}
                     </div>
                     <div className="grid grid-cols-3 gap-6 w-full max-w-[280px]">
-                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 'Sil', 0, isSetup ? 'İptal' : 'X'].map(val => (
+                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 'Sil', 0, 'X'].map(val => (
                             <button key={val} onClick={() => {
                                 if (val === 'Sil') setEnteredPin(enteredPin.slice(0, -1));
-                                else if (val === 'İptal') { setPinSetupStep(0); setEnteredPin(''); setTempPin(''); }
-                                else if (val === 'X') { /* Kilitliyken X işlevsiz */ }
-                                else handlePinInput(val.toString());
-                            }} className={`w-full aspect-square rounded-full flex items-center justify-center text-xl font-bold active:scale-90 transition ${typeof val === 'number' ? 'bg-zinc-900 text-white' : 'text-zinc-600 text-sm uppercase'}`}>
-                                {val === 'X' ? <Icon name="lock" size={20} className="mx-auto opacity-50"/> : val}
+                                else if (val !== 'X') {
+                                    const updated = enteredPin + val;
+                                    setEnteredPin(updated);
+                                    if(updated.length === 4) {
+                                        if(updated === appPin) { setIsLocked(false); setEnteredPin(''); }
+                                        else { setTimeout(() => setEnteredPin(''), 300); }
+                                    }
+                                }
+                            }} className={`w-full aspect-square rounded-full flex items-center justify-center text-xl font-bold active:scale-90 transition ${typeof val === 'number' ? t.card : 'opacity-50 text-sm uppercase'}`}>
+                                {val === 'X' ? <Icon name="lock" size={20} className="mx-auto"/> : val}
                             </button>
                         ))}
                     </div>
                 </div>
             );
 
-            if (isLocked) return renderPinPad("Kilitli Cüzdan", "Devam etmek için şifrenizi girin", false);
-
-            // Google Canvas Uyumlu NFC Okuma
-            const scanNfcCard = async () => {
-                if ('NDEFReader' in window) {
-                    try {
-                        const ndef = new window.NDEFReader();
-                        await ndef.scan();
-                        setAlertData({ title: "NFC Aktif", message: "Okuyucu açıldı! Lütfen kartı veya kimliği telefonun arkasına yaklaştırın." });
-                        ndef.addEventListener("reading", ({ serialNumber }) => {
-                            if (serialNumber) {
-                                setNewCard(prev => ({ ...prev, details: serialNumber.replace(/:/g, '').toUpperCase() }));
-                                setAlertData({ title: "Başarılı", message: "Çip seri numarası eklendi!" });
-                            } else {
-                                setAlertData({ title: "Uyarı", message: "Kart algılandı ancak şifreleme nedeniyle okunamadı." });
-                            }
-                        });
-                    } catch (error) { 
-                        setAlertData({ title: "NFC Başlatılamadı", message: "Cihazınızda NFC'nin açık olduğundan emin olun. Hata: " + error.message }); 
-                    }
-                } else {
-                    setShowNfcInfo(true);
-                }
-            };
-
-            // GEMINI API ENTEGRASYONU: Akıllı Kart Doldurucu
-            const handleAiFill = async () => {
-                if (!aiInput.trim()) {
-                    setAlertData({ title: "Uyarı", message: "Lütfen kart bilgilerini içeren bir metin girin." });
-                    return;
-                }
-                
-                setIsAiLoading(true);
-                const apiKey = ""; // Sistem tarafından enjekte edilecek
-                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
-                
-                const prompt = `Aşağıdaki serbest metni analiz et ve bir cüzdan kartı için gerekli bilgileri çıkar.
-Eğer isim yoksa boş bırak. Eğer kurum adı yoksa mantıklı bir tahmin yap veya boş bırak.
-Kategori türü şunlardan biri olmalı: 'payment' (kredi/banka kartı), 'transit' (ulaşım kartı), 'id' (kimlik/pasaport/ehliyet), 'loyalty' (sadakat/restoran/mağaza/öğrenci).
-
-Metin: "${aiInput}"`;
-
-                const payload = {
-                    contents: [{ parts: [{ text: prompt }] }],
-                    generationConfig: {
-                        responseMimeType: "application/json",
-                        responseSchema: {
-                            type: "OBJECT",
-                            properties: {
-                                issuer: { type: "STRING", description: "Kurum veya banka adı (örn: Garanti, İBB, Nüfus Müd.)" },
-                                name: { type: "STRING", description: "Kartın başlığı veya türü (örn: Bonus, İstanbulkart, T.C. Kimlik, Öğrenci Kartı)" },
-                                ownerName: { type: "STRING", description: "Kart sahibinin adı ve soyadı" },
-                                details: { type: "STRING", description: "Kart, belge veya seri numarası" },
-                                categoryId: { type: "STRING", enum: ["payment", "transit", "id", "loyalty"] }
-                            },
-                            required: ["issuer", "name", "ownerName", "details", "categoryId"]
-                        }
-                    },
-                    systemInstruction: {
-                        parts: [{ text: "Sen akıllı bir cüzdan asistanısın. Kullanıcının girdiği karmaşık metinden kart bilgilerini çıkar ve sadece JSON olarak döndür." }]
-                    }
-                };
-
-                const fetchWithRetry = async (retryCount = 0) => {
-                    const delays = [1000, 2000, 4000, 8000, 16000];
-                    try {
-                        const response = await fetch(url, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(payload)
-                        });
-                        if (!response.ok) throw new Error('API Hatası');
-                        const data = await response.json();
-                        const result = JSON.parse(data.candidates[0].content.parts[0].text);
-                        
-                        setNewCard(prev => ({
-                            ...prev,
-                            issuer: result.issuer || prev.issuer,
-                            name: result.name || prev.name,
-                            ownerName: result.ownerName ? result.ownerName.toUpperCase() : prev.ownerName,
-                            details: result.details || prev.details,
-                            categoryId: result.categoryId || prev.categoryId
-                        }));
-                        
-                        setShowAiInput(false);
-                        setAiInput('');
-                        setAlertData({ title: "✨ Sihir Tamamlandı", message: "Yapay zeka kart bilgilerinizi başarıyla ayıkladı ve formu doldurdu!" });
-                    } catch (error) {
-                        if (retryCount < 5) {
-                            await new Promise(res => setTimeout(res, delays[retryCount]));
-                            return fetchWithRetry(retryCount + 1);
-                        }
-                        setAlertData({ title: "Hata", message: "Yapay zeka ile bağlantı kurulamadı. Lütfen tekrar deneyin." });
-                    }
-                };
-
-                await fetchWithRetry();
-                setIsAiLoading(false);
-            };
-
             return (
-                <div className="max-w-md mx-auto h-screen bg-zinc-950 text-white relative flex flex-col overflow-hidden shadow-2xl">
+                <div className={`max-w-md mx-auto h-screen ${t.bg} ${t.text} relative flex flex-col overflow-hidden shadow-2xl theme-transition`}>
                     <main className="flex-1 overflow-y-auto px-6 pb-24 pt-12 no-scrollbar">
                         
                         {/* CÜZDAN SEKMESİ */}
                         {activeTab === 'wallet' && (
                             <>
                                 <div className="flex justify-between items-center mb-10">
-                                    <div><h1 className="text-4xl font-black tracking-tighter">Cüzdanım</h1><p className="text-[10px] font-bold text-zinc-600 tracking-widest uppercase">Yerel Saklama Aktif</p></div>
-                                    <button onClick={() => setActiveTab('add')} className="w-12 h-12 bg-white text-black rounded-full flex items-center justify-center hover:scale-105 active:scale-95 transition"><Icon name="plus" /></button>
+                                    <div><h1 className="text-4xl font-black tracking-tighter">Cüzdanım</h1></div>
+                                    <button onClick={() => setActiveTab('add')} className={`w-12 h-12 rounded-full flex items-center justify-center hover:scale-105 active:scale-95 transition shadow-lg ${appTheme === 'light' ? 'bg-slate-900 text-white' : (appTheme === 'neon' ? 'bg-cyan-500 text-black shadow-[0_0_15px_rgba(34,211,238,0.6)]' : 'bg-white text-black')}`}><Icon name="plus" /></button>
                                 </div>
                                 <div className="relative">
                                     {cards.map((card, i) => (
-                                        <div key={card.id} onClick={() => setSelectedCard(card)} className="h-52 rounded-[28px] p-6 mb-[-140px] shadow-[0_10px_40px_rgba(0,0,0,0.8)] bg-gradient-to-br border border-white/10 transition-transform active:scale-95 cursor-pointer relative" style={{ top: `${i * 0}px`, backgroundImage: `linear-gradient(to bottom right, ${card.color.split(' ')[0].replace('from-', '')}, ${card.color.split(' ')[1].replace('to-', '')})`, zIndex: i }}>
+                                        <div key={card.id} onClick={() => setSelectedCard(card)} className="h-52 rounded-[28px] p-6 mb-[-140px] shadow-[0_10px_40px_rgba(0,0,0,0.5)] bg-gradient-to-br border border-white/20 transition-transform active:scale-95 cursor-pointer relative text-white" style={{ top: `${i * 0}px`, backgroundImage: `linear-gradient(to bottom right, ${card.color.split(' ')[0].replace('from-', '')}, ${card.color.split(' ')[1].replace('to-', '')})`, zIndex: i }}>
                                             <div className="flex justify-between items-start">
-                                                <div><p className="text-[10px] font-black opacity-50 uppercase mb-1">{card.issuer}</p><h3 className="text-2xl font-bold tracking-tight">{card.name}</h3></div>
-                                                <Icon name={card.icon} size={32} className="opacity-60" />
+                                                <div><p className="text-[10px] font-black opacity-60 uppercase mb-1">{card.issuer}</p><h3 className="text-2xl font-bold tracking-tight">{card.name}</h3></div>
+                                                <Icon name={card.icon} size={32} className="opacity-80" />
                                             </div>
-                                            <div className="mt-auto pt-16"><p className="font-mono text-sm tracking-widest opacity-80">{card.details}</p><p className="text-[10px] font-bold mt-2 uppercase opacity-40">{card.ownerName}</p></div>
+                                            <div className="mt-auto pt-16 flex justify-between items-end">
+                                                <div>
+                                                    <p className="font-mono text-sm tracking-widest opacity-90">{card.details}</p>
+                                                    <p className="text-[10px] font-bold mt-2 uppercase opacity-60">{card.ownerName}</p>
+                                                </div>
+                                                {card.photo && <Icon name="image" size={16} className="opacity-40 mb-1" />}
+                                            </div>
                                         </div>
                                     ))}
-                                    {cards.length === 0 && <div className="text-center py-40 opacity-20"><Icon name="wallet" size={64} className="mx-auto mb-4" /><p className="font-bold text-xs uppercase tracking-widest">Cüzdan Boş</p></div>}
+                                    {cards.length === 0 && <div className="text-center py-40 opacity-30"><Icon name="wallet" size={64} className="mx-auto mb-4" /><p className="font-bold text-xs uppercase tracking-widest">Cüzdan Boş</p></div>}
                                 </div>
                             </>
                         )}
@@ -249,120 +324,282 @@ Metin: "${aiInput}"`;
                         {/* KART EKLE SEKMESİ */}
                         {activeTab === 'add' && (
                             <div className="animate-in fade-in duration-300 relative">
-                                <div className="flex justify-between items-center mb-10">
+                                <div className="flex justify-between items-center mb-8">
                                     <h1 className="text-3xl font-black">Yeni Kart</h1>
-                                    <div className="flex gap-2">
-                                        <button onClick={() => setShowAiInput(!showAiInput)} className={`p-2 rounded-full transition ${showAiInput ? 'bg-purple-600 text-white' : 'bg-zinc-900 text-purple-400 hover:text-purple-300'}`} title="Yapay Zeka ile Ekle">
-                                            <Icon name="sparkles" size={20}/>
-                                        </button>
-                                        <button onClick={() => setShowNfcInfo(true)} className="p-2 bg-zinc-900 rounded-full text-blue-400 hover:text-blue-300 transition"><Icon name="info" size={20}/></button>
-                                    </div>
+                                    <input type="file" accept=".npmwallet" ref={importInputRef} onChange={handleImportFile} className="hidden" />
+                                    <button onClick={() => importInputRef.current.click()} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition ${t.card} border`}>
+                                        <Icon name="download" size={14}/> İçe Aktar
+                                    </button>
                                 </div>
-                                
-                                {showAiInput && (
-                                    <div className="bg-purple-900/20 border border-purple-500/30 p-5 rounded-[24px] mb-8 animate-in slide-in-from-top-4">
-                                        <div className="flex items-center gap-2 mb-3">
-                                            <Icon name="sparkles" size={18} className="text-purple-400" />
-                                            <span className="text-xs font-bold text-purple-400 uppercase tracking-widest">✨ Akıllı Asistan</span>
-                                        </div>
-                                        <p className="text-[10px] text-zinc-400 mb-4 leading-relaxed">Karmaşık bir metin yapıştırın (Örn: "Garanti bankası kredi kartım 1234 5678, adım Ali Veli"), yapay zeka formu sizin için doldursun!</p>
-                                        <textarea 
-                                            className="w-full bg-zinc-950 border border-purple-900/50 rounded-xl p-3 text-white text-sm outline-none focus:border-purple-500 transition mb-3 custom-scrollbar h-24 resize-none"
-                                            placeholder="Metni buraya yapıştırın..."
-                                            value={aiInput}
-                                            onChange={e => setAiInput(e.target.value)}
-                                        />
-                                        <button 
-                                            onClick={handleAiFill}
-                                            disabled={isAiLoading}
-                                            className="w-full bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs uppercase tracking-widest py-3 rounded-xl transition flex items-center justify-center gap-2 disabled:opacity-50"
-                                        >
-                                            {isAiLoading ? <Icon name="loader" className="animate-spin" size={16} /> : <Icon name="wand-2" size={16} />}
-                                            {isAiLoading ? "ANALİZ EDİLİYOR..." : "✨ SİHİRLİ DOLDUR"}
-                                        </button>
-                                    </div>
-                                )}
 
-                                <div className="grid grid-cols-2 gap-3 mb-8">
-                                    {INITIAL_CATEGORIES.map(cat => (
-                                        <button key={cat.id} onClick={() => setNewCard({...newCard, categoryId: cat.id})} className={`p-4 rounded-2xl border-2 flex items-center gap-3 transition ${newCard.categoryId === cat.id ? 'border-white bg-white/10' : 'border-zinc-900 text-zinc-600'}`}>
-                                            <Icon name={cat.icon} size={18} /><span className="text-[10px] font-black uppercase truncate">{cat.name}</span>
+                                {/* KATEGORİLER İYİLEŞTİRİLDİ (Sarma / Flex Wrap) */}
+                                <div className="flex flex-wrap gap-2 mb-6">
+                                    {allCategories.map(cat => (
+                                        <button key={cat.id} onClick={() => setNewCard({...newCard, categoryId: cat.id})} className={`px-4 py-2 rounded-2xl border-2 flex items-center gap-2 transition ${newCard.categoryId === cat.id ? (appTheme === 'neon' ? 'border-cyan-400 bg-cyan-900/30 text-cyan-400' : 'border-current opacity-100') : 'border-transparent opacity-40 bg-zinc-800/30'}`}>
+                                            <Icon name={cat.icon} size={16} /><span className="text-[10px] font-black uppercase">{cat.name}</span>
                                         </button>
                                     ))}
                                 </div>
+
                                 <div className="space-y-4 mb-8">
-                                    <input placeholder={newCard.categoryId === 'id' ? "KURUM (Örn: Nüfus Müd., Konsolosluk)" : "KURUM (İBB, BANKA, MEB)"} className="w-full bg-zinc-900 border border-zinc-800 p-5 rounded-2xl text-white outline-none focus:border-white transition uppercase font-bold text-sm" value={newCard.issuer} onChange={e => setNewCard({...newCard, issuer: e.target.value})} />
-                                    <input placeholder={newCard.categoryId === 'id' ? "BELGE TÜRÜ (Örn: T.C. Kimlik, Pasaport)" : "KART ADI (Örn: Öğrenci Kartı, Bonus)"} className="w-full bg-zinc-900 border border-zinc-800 p-5 rounded-2xl text-white outline-none focus:border-white transition font-bold text-sm" value={newCard.name} onChange={e => setNewCard({...newCard, name: e.target.value})} />
-                                    <input placeholder="İSİM SOYİSİM" className="w-full bg-zinc-900 border border-zinc-800 p-5 rounded-2xl text-white outline-none focus:border-white transition uppercase font-bold text-sm" value={newCard.ownerName} onChange={e => setNewCard({...newCard, ownerName: e.target.value.toUpperCase()})} />
-                                    
-                                    <div className="flex gap-2">
-                                        <input placeholder={newCard.categoryId === 'id' ? "T.C. NO / PASAPORT NO" : "KART NUMARASI / SERİ NO"} className="w-full bg-zinc-900 border border-zinc-800 p-5 rounded-2xl text-white outline-none focus:border-white transition font-mono text-sm" value={newCard.details} onChange={e => setNewCard({...newCard, details: e.target.value})} />
-                                        <button onClick={scanNfcCard} className="bg-blue-600 px-4 rounded-2xl text-white active:scale-95 transition flex flex-col items-center justify-center shadow-lg whitespace-nowrap">
-                                            <Icon name="nfc" size={20} />
-                                            <span className="text-[8px] font-bold mt-1">NFC OKU</span>
+                                    <input placeholder="Kurum/Marka Adı" className={`w-full p-5 rounded-2xl outline-none transition uppercase font-bold text-sm border-2 ${t.input}`} value={newCard.issuer} onChange={e => setNewCard({...newCard, issuer: e.target.value})} />
+                                    <input placeholder="Kartın/Biletin Başlığı" className={`w-full p-5 rounded-2xl outline-none transition font-bold text-sm border-2 ${t.input}`} value={newCard.name} onChange={e => setNewCard({...newCard, name: e.target.value})} />
+                                    <input placeholder="İsim Soyisim" className={`w-full p-5 rounded-2xl outline-none transition uppercase font-bold text-sm border-2 ${t.input}`} value={newCard.ownerName} onChange={e => setNewCard({...newCard, ownerName: e.target.value.toUpperCase()})} />
+                                    <input placeholder="Numara / Bilet Kodu" className={`w-full p-5 rounded-2xl outline-none transition font-mono text-sm border-2 ${t.input}`} value={newCard.details} onChange={e => setNewCard({...newCard, details: e.target.value})} />
+
+                                    <div className={`${t.card} border-dashed p-4 rounded-2xl flex items-center justify-between border-2`}>
+                                        <div className="flex items-center gap-3">
+                                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center opacity-50`}><Icon name="camera" size={20}/></div>
+                                            <div>
+                                                <p className="text-xs font-bold">Fotoğraf / Bilet Yükle</p>
+                                                <p className="text-[9px] opacity-60">Fotoğraf yoksa QR otomatik üretilir</p>
+                                            </div>
+                                        </div>
+                                        <input type="file" accept="image/*" ref={fileInputRef} onChange={handleImageUpload} className="hidden" />
+                                        <button onClick={() => fileInputRef.current.click()} className={`px-4 py-2 rounded-xl text-xs font-bold active:scale-95 transition border ${appTheme === 'neon' ? 'border-cyan-900 bg-black text-cyan-400' : 'bg-current text-black dark:text-white dark:bg-zinc-800'}`}>
+                                            {newCard.photo ? 'DEĞİŞTİR' : 'SEÇ'}
                                         </button>
                                     </div>
                                 </div>
+
+                                <div className="mb-8">
+                                    <p className="text-[10px] font-bold opacity-50 uppercase tracking-widest mb-3 ml-1">Renk Paleti</p>
+                                    <div className="flex gap-3 overflow-x-auto pb-2 custom-scrollbar">
+                                        {CARD_COLORS.map(c => (
+                                            <button key={c} type="button" onClick={() => setNewCard({...newCard, color: c})} className={`w-12 h-12 rounded-2xl shrink-0 bg-gradient-to-br ${c} transition-all duration-300 ${newCard.color === c ? 'ring-2 ring-current ring-offset-4 ring-offset-transparent scale-110' : 'opacity-40 hover:opacity-100'}`} />
+                                        ))}
+                                    </div>
+                                </div>
+
                                 <button onClick={() => { 
-                                    if(!newCard.name || !newCard.details) { setAlertData({title: "Eksik Bilgi", message: "Lütfen en azından Kart Adı ve Numarasını doldurun."}); return; }
-                                    setCards([{...newCard, id: Date.now(), icon: INITIAL_CATEGORIES.find(c => c.id === newCard.categoryId).icon}, ...cards]); 
+                                    if(!newCard.name || !newCard.details) { setAlertData({title: "Eksik Bilgi", message: "Lütfen en azından Başlık ve Numarayı doldurun."}); return; }
+                                    const catIcon = allCategories.find(c => c.id === newCard.categoryId)?.icon || 'credit-card';
+                                    setCards([{...newCard, id: Date.now().toString(), icon: catIcon}, ...cards]); 
                                     setActiveTab('wallet'); 
-                                    setNewCard({ categoryId: 'payment', issuer: '', name: '', ownerName: '', details: '', color: 'from-zinc-800 to-black' });
-                                }} className="w-full bg-white text-black py-5 rounded-[24px] font-black text-lg active:scale-95 transition">CÜZDANA KAYDET</button>
+                                    setNewCard({ categoryId: 'payment', issuer: '', name: '', ownerName: '', details: '', color: 'from-zinc-800 to-black', photo: null });
+                                }} className={`w-full py-5 rounded-[24px] font-black text-lg active:scale-95 transition shadow-lg ${appTheme === 'light' ? 'bg-slate-900 text-white' : (appTheme === 'neon' ? 'bg-cyan-500 text-black shadow-[0_0_20px_rgba(34,211,238,0.5)]' : 'bg-white text-black')}`}>CÜZDANA EKLE</button>
+                            </div>
+                        )}
+
+                        {/* KURUMSAL PANEL (NPM5) SEKMESİ */}
+                        {activeTab === 'corporate' && (
+                            <div className="animate-in fade-in duration-300">
+                                <div className="flex justify-between items-center mb-8">
+                                    <div><h1 className="text-3xl font-black text-blue-500">Kurumsal B2B</h1><p className="text-[10px] font-bold opacity-50 uppercase tracking-widest">Toplu Üretim Paneli</p></div>
+                                    <button onClick={() => setActiveTab('settings')} className="opacity-50 hover:opacity-100"><Icon name="x"/></button>
+                                </div>
+
+                                <div className="space-y-6">
+                                    <div className={`${t.card} p-5 rounded-3xl border-2`}>
+                                        <h3 className="text-xs font-black uppercase opacity-60 mb-4 tracking-widest">Kart Temel Şablonu</h3>
+                                        
+                                        <div className="flex flex-wrap gap-2 mb-4">
+                                            {allCategories.map(cat => (
+                                                <button key={cat.id} onClick={() => setCorpForm({...corpForm, categoryId: cat.id})} className={`px-4 py-2 rounded-xl border-2 flex items-center gap-2 transition ${corpForm.categoryId === cat.id ? 'border-blue-500 text-blue-500 bg-blue-500/10' : 'border-transparent opacity-40 bg-zinc-800/30'}`}>
+                                                    <Icon name={cat.icon} size={14} /><span className="text-[10px] font-black uppercase">{cat.name}</span>
+                                                </button>
+                                            ))}
+                                        </div>
+
+                                        <input placeholder="Marka / Kurum Adı" className={`w-full p-4 rounded-xl outline-none font-bold text-sm border-2 mb-3 ${t.input}`} value={corpForm.issuer} onChange={e => setCorpForm({...corpForm, issuer: e.target.value})} />
+                                        <input placeholder="Kampanya / Bilet Başlığı" className={`w-full p-4 rounded-xl outline-none font-bold text-sm border-2 mb-3 ${t.input}`} value={corpForm.name} onChange={e => setCorpForm({...corpForm, name: e.target.value})} />
+                                        
+                                        <div className="flex items-center justify-between bg-zinc-900 border border-zinc-800 p-3 rounded-xl mb-3">
+                                            <div className="flex items-center gap-2 text-white">
+                                                <Icon name="image" size={16}/> <span className="text-xs font-bold">Marka Logosu (Ops)</span>
+                                            </div>
+                                            <input type="file" accept="image/*" ref={corpLogoRef} onChange={handleCorpLogUpload} className="hidden"/>
+                                            <button onClick={() => corpLogoRef.current.click()} className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-black">{corpForm.brandLogo ? 'YÜKLENDİ' : 'SEÇ'}</button>
+                                        </div>
+
+                                        <p className="text-[10px] font-bold opacity-50 uppercase tracking-widest mb-2">Marka Rengi</p>
+                                        <div className="flex gap-2 overflow-x-auto pb-2 custom-scrollbar">
+                                            {CARD_COLORS.map(c => (
+                                                <button key={c} onClick={() => setCorpForm({...corpForm, color: c})} className={`w-10 h-10 rounded-xl shrink-0 bg-gradient-to-br ${c} transition-all ${corpForm.color === c ? 'ring-2 ring-blue-500 scale-110' : 'opacity-40'}`} />
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    <div className={`${t.card} p-5 rounded-3xl border-2`}>
+                                        <h3 className="text-xs font-black uppercase opacity-60 mb-4 tracking-widest">Toplu Veri Aktarımı</h3>
+                                        
+                                        <div className="flex items-center justify-between mb-4 bg-zinc-900 border border-zinc-800 p-3 rounded-xl">
+                                            <label className="text-xs font-bold text-white uppercase tracking-widest">Üretilecek Adet:</label>
+                                            <input type="number" min="1" max="500" className="w-20 p-2 rounded-lg bg-black text-white text-center font-bold outline-none border border-zinc-700 focus:border-blue-500" value={bulkAmount} onChange={e => setBulkAmount(e.target.value)} />
+                                        </div>
+
+                                        <textarea placeholder="Müşteri İsimleri (Her satıra 1 isim)&#10;Boş bırakırsanız müşteri cüzdanına eklerken kendisi ismini girer." className={`w-full p-4 rounded-xl outline-none text-xs border-2 mb-4 h-24 resize-none custom-scrollbar ${t.input}`} value={corpNamesText} onChange={e => setCorpNamesText(e.target.value)}></textarea>
+                                        
+                                        <div className="flex items-center justify-between bg-zinc-900 border border-zinc-800 p-4 rounded-xl mb-2">
+                                            <div>
+                                                <p className="text-xs font-bold text-white flex items-center gap-2"><Icon name="qr-code" size={16}/> Özel QR / Foto</p>
+                                                <p className="text-[9px] text-zinc-500 mt-1">Görsel seçmezseniz sistem QR'ı otomatik üretir.</p>
+                                            </div>
+                                            <input type="file" accept="image/*" multiple ref={corpQRsRef} onChange={handleCorpQRsUpload} className="hidden"/>
+                                            <button onClick={() => corpQRsRef.current.click()} className="bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-black shrink-0">{corpQRs.length > 0 ? `${corpQRs.length} ADET` : 'SEÇ'}</button>
+                                        </div>
+                                    </div>
+
+                                    <button onClick={generateBulkCards} className="w-full bg-blue-600 text-white py-5 rounded-2xl font-black text-lg active:scale-95 transition shadow-lg shadow-blue-900/50">TOPLU ÜRET (GENERATE)</button>
+
+                                    {generatedCorpCards.length > 0 && (
+                                        <div className="mt-8">
+                                            <h3 className="text-sm font-black mb-4 flex justify-between">Üretilen Kartlar <span className="text-blue-500">{generatedCorpCards.length}</span></h3>
+                                            <div className="space-y-3">
+                                                {generatedCorpCards.map((c, idx) => (
+                                                    <div key={idx} className={`${t.card} p-4 rounded-2xl border flex justify-between items-center`}>
+                                                        <div>
+                                                            <p className="font-bold text-sm">{c.ownerName || "İsimsiz Şablon"}</p>
+                                                            <p className="text-[10px] opacity-60">{c.photo ? "Özel Görselli" : "Otomatik QR"}</p>
+                                                        </div>
+                                                        <button onClick={() => exportCard(c)} className="bg-zinc-800 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2"><Icon name="download" size={14}/> İndir</button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         )}
 
                         {/* AYARLAR SEKMESİ */}
                         {activeTab === 'settings' && (
-                            <div className="text-center py-10">
-                                <h1 className="text-3xl font-black mb-10">Ayarlar</h1>
-                                <div className="bg-zinc-900 rounded-3xl border border-zinc-800 overflow-hidden divide-y divide-zinc-800">
-                                    <button onClick={() => setPinSetupStep(1)} className="w-full p-6 flex justify-between items-center font-bold hover:bg-zinc-800 transition"><span>PIN Kodu Belirle</span><Icon name="shield" className="text-zinc-500"/></button>
-                                    
-                                    {appPin && (
-                                        <button onClick={() => { 
-                                            // Canvas uyumlu özel silme onayı
-                                            setAppPin(null); 
-                                            setAlertData({title: "PIN Kaldırıldı", message: "Uygulama şifresi başarıyla kaldırıldı."}); 
-                                        }} className="w-full p-6 text-red-500 font-bold text-left hover:bg-zinc-800 transition">Şifreyi Kaldır</button>
-                                    )}
+                            <div className="text-center py-6 animate-in fade-in">
+                                <h1 className="text-3xl font-black mb-8 text-left">Ayarlar</h1>
+                                
+                                {/* TEMA MOTORU */}
+                                <div className="mb-8 text-left">
+                                    <p className="text-[10px] font-bold opacity-50 uppercase tracking-widest mb-3">Uygulama Teması</p>
+                                    <div className="grid grid-cols-3 gap-3">
+                                        {[
+                                            { id: 'dark', name: 'Karanlık', icon: 'moon' },
+                                            { id: 'light', name: 'Aydınlık', icon: 'sun' },
+                                            { id: 'neon', name: 'Siberpunk', icon: 'zap' }
+                                        ].map(theme => (
+                                            <button key={theme.id} onClick={() => setAppTheme(theme.id)} className={`p-4 rounded-2xl border-2 flex flex-col items-center gap-2 transition ${appTheme === theme.id ? (appTheme === 'neon' ? 'border-cyan-400 bg-cyan-900/20 text-cyan-400' : 'border-current') : 'border-transparent opacity-50'}`}>
+                                                <Icon name={theme.icon} size={24}/>
+                                                <span className="text-[10px] font-bold uppercase">{theme.name}</span>
+                                            </button>
+                                        ))}
+                                    </div>
                                 </div>
-                                <p className="mt-20 opacity-10 text-[10px] font-black tracking-[0.5em] uppercase">NPM Wallet v4.0</p>
+
+                                {/* YENİ: KATEGORİ EKLEME BÖLÜMÜ */}
+                                <div className={`mb-8 p-6 rounded-3xl border text-left ${t.card}`}>
+                                    <h3 className="text-sm font-black mb-4">Yeni Kategori Ekle</h3>
+                                    <div className="flex gap-2 mb-4">
+                                        <input placeholder="Kategori Adı (Örn: Spor, Okul)" className={`flex-1 p-3 rounded-xl outline-none font-bold text-xs border-2 ${t.input}`} value={newCatName} onChange={e => setNewCatName(e.target.value)} />
+                                        <button onClick={addCustomCategory} className="bg-emerald-600 text-white px-4 rounded-xl font-bold text-xs active:scale-95">EKLE</button>
+                                    </div>
+                                    <p className="text-[10px] font-bold opacity-50 uppercase tracking-widest mb-2">İkon Seçin</p>
+                                    <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
+                                        {CUSTOM_ICONS.map(icon => (
+                                            <button key={icon} onClick={() => setNewCatIcon(icon)} className={`p-3 rounded-xl border-2 transition ${newCatIcon === icon ? 'border-current opacity-100' : 'border-transparent opacity-40 bg-zinc-800/20'}`}>
+                                                <Icon name={icon} size={18} />
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div className={`rounded-3xl border overflow-hidden divide-y ${t.card} ${appTheme === 'light' ? 'divide-slate-200' : (appTheme === 'neon' ? 'divide-cyan-900 border-cyan-900' : 'divide-zinc-800 border-zinc-800')}`}>
+                                    <button onClick={() => setPinSetupStep(1)} className="w-full p-6 flex justify-between items-center font-bold transition opacity-80 hover:opacity-100"><span>Cüzdan Şifresi Belirle</span><Icon name="shield"/></button>
+                                    {appPin && <button onClick={() => { setAppPin(null); setAlertData({title: "Kaldırıldı", message: "Uygulama şifresi kaldırıldı."}); }} className="w-full p-6 text-red-500 font-bold text-left transition">Şifreyi Kaldır</button>}
+                                    <button onClick={() => { if(confirm("Tüm kartlarınız silinecek, emin misiniz?")){ setCards([]); } }} className="w-full p-6 text-red-500 font-bold text-left transition">Tüm Kartları Sil</button>
+                                    
+                                    <button onClick={() => setShowCorpLogin(true)} className="w-full p-6 flex justify-between items-center font-bold text-blue-500 bg-blue-500/5 transition"><span>Kurumsal Panel</span><Icon name="building-2"/></button>
+                                </div>
+                                <p className="mt-16 opacity-30 text-[10px] font-black tracking-[0.5em] uppercase">NPM Wallet Engine B2B</p>
                             </div>
                         )}
 
-                        {/* PİN BELİRLEME EKRANI (Ayar üstüne biner) */}
-                        {pinSetupStep > 0 && renderPinPad(pinSetupStep === 1 ? "Yeni PIN Oluştur" : "PIN'i Doğrula", pinSetupStep === 1 ? "Uygulama için 4 haneli bir şifre girin" : "Şifreyi tekrar girin", true)}
-
                     </main>
+
+                    {/* KURUMSAL GİRİŞ MODALI */}
+                    {showCorpLogin && (
+                        <div className="absolute inset-0 z-[100] bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-8 animate-in fade-in">
+                            <div className="bg-zinc-900 border border-blue-500/30 p-8 rounded-3xl w-full max-w-sm text-center shadow-[0_0_30px_rgba(59,130,246,0.2)]">
+                                <Icon name="building-2" size={48} className="text-blue-500 mx-auto mb-4" />
+                                <h3 className="text-xl font-black text-white mb-2">Kurumsal Yönetim Paneli</h3>
+                                <p className="text-zinc-400 text-xs mb-8">Erişim sağlamak için yetkili şifresini girin.</p>
+                                
+                                <input type="password" placeholder="Şifre" className="w-full bg-black border border-zinc-800 p-4 rounded-xl text-center text-white font-mono tracking-widest outline-none focus:border-blue-500 mb-6" value={corpLoginPin} onChange={e => setCorpLoginPin(e.target.value)} />
+                                
+                                <div className="flex gap-3">
+                                    <button onClick={() => {
+                                        if (corpLoginPin === 'NPM5') { setShowCorpLogin(false); setActiveTab('corporate'); setCorpLoginPin(''); } 
+                                        else { setAlertData({title: "Erişim Reddedildi", message: "Hatalı kurumsal şifre."}); setCorpLoginPin(''); }
+                                    }} className="flex-1 bg-blue-600 text-white font-bold py-4 rounded-xl active:scale-95 transition">GİRİŞ</button>
+                                    <button onClick={() => setShowCorpLogin(false)} className="px-6 bg-zinc-800 text-white font-bold py-4 rounded-xl active:scale-95 transition">İPTAL</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* AKILLI İSİM SORMACA MODALI */}
+                    {namePromptCard && (
+                        <div className="absolute inset-0 z-[110] bg-black/90 backdrop-blur-xl flex flex-col items-center justify-center p-8 animate-in slide-in-from-bottom">
+                            <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-[32px] w-full max-w-sm text-center shadow-2xl relative overflow-hidden">
+                                <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-blue-500 to-purple-500"></div>
+                                <h3 className="text-xl font-black text-white mb-2 mt-2">Bilet/Kart Size Mi Ait?</h3>
+                                <p className="text-zinc-400 text-xs mb-8 leading-relaxed">Kurum tarafından isimsiz bir kart üretilmiş. Cüzdana eklemek için adınızı belirtin.</p>
+                                
+                                {savedUserName && (
+                                    <div className="bg-zinc-950 border border-zinc-800 p-4 rounded-2xl mb-4 text-left">
+                                        <p className="text-[10px] text-zinc-500 font-bold uppercase mb-1">Kayıtlı Profiliniz</p>
+                                        <p className="text-white font-black">{savedUserName}</p>
+                                        <button onClick={() => handleNamePromptSubmit(true)} className="w-full mt-3 bg-blue-600/20 text-blue-400 font-bold py-2 rounded-xl text-xs">BU İSMİ KULLAN</button>
+                                    </div>
+                                )}
+                                
+                                <div className="relative">
+                                    <input placeholder="VEYA YENİ İSİM GİRİN" className="w-full bg-black border border-zinc-800 p-4 rounded-2xl text-white outline-none focus:border-white text-sm font-bold uppercase text-center" value={tempNameInput} onChange={e => setTempNameInput(e.target.value)} />
+                                </div>
+                                
+                                <div className="flex gap-2 mt-6">
+                                    <button onClick={() => handleNamePromptSubmit(false)} className="flex-1 bg-white text-black font-black py-4 rounded-2xl active:scale-95 transition text-sm">KAYDET</button>
+                                    <button onClick={() => setNamePromptCard(null)} className="px-5 bg-zinc-800 text-zinc-400 font-bold py-4 rounded-2xl active:scale-95 transition text-xs">İPTAL</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     {/* KART DETAY MODALI */}
                     {selectedCard && (
-                        <div className="absolute inset-0 z-50 bg-black flex flex-col p-6 pt-12 animate-in slide-in-from-bottom duration-300">
-                            <button onClick={() => { setSelectedCard(null); setShowDeleteConfirm(false); }} className="text-zinc-500 flex items-center gap-2 font-bold mb-10 w-fit"><Icon name="chevron-left" /> GERİ</button>
-                            <div className="h-56 rounded-[32px] p-8 shadow-2xl bg-zinc-900 text-white mb-10 border border-white/5 relative">
-                                <div className="flex justify-between items-start">
-                                    <div><p className="text-[10px] font-black opacity-50 uppercase mb-1">{selectedCard.issuer}</p><h3 className="text-3xl font-bold tracking-tighter">{selectedCard.name}</h3></div>
-                                    <Icon name={selectedCard.icon} size={40} className="opacity-60" />
-                                </div>
-                                <div className="mt-auto pt-16"><p className="font-mono text-xl tracking-widest">{selectedCard.details}</p><p className="text-xs font-bold uppercase opacity-40">{selectedCard.ownerName}</p></div>
+                        <div className={`absolute inset-0 z-50 ${t.bg} flex flex-col p-6 pt-12 animate-in slide-in-from-bottom duration-300 overflow-y-auto no-scrollbar`}>
+                            <div className="flex justify-between items-center mb-8">
+                                <button onClick={() => { setSelectedCard(null); setShowDeleteConfirm(false); }} className="opacity-60 flex items-center gap-2 font-bold hover:opacity-100 transition"><Icon name="chevron-left" /> GERİ</button>
+                                <button onClick={() => exportCard(selectedCard)} className={`p-3 rounded-full border transition ${t.card} shadow-lg`} title="NPM5 Formatında Dışa Aktar"><Icon name="upload" size={20} /></button>
                             </div>
                             
-                            <div className="grid grid-cols-2 gap-4 mb-10">
-                                <button onClick={() => setShowNfcModal(true)} className="bg-zinc-900 p-8 rounded-[32px] border border-zinc-800 flex flex-col items-center gap-3 active:scale-95 transition"><Icon name="nfc" className="text-blue-500" /><span className="text-[10px] font-black uppercase tracking-widest text-zinc-600">NFC TEMASSIZ</span></button>
-                                <button onClick={() => setShowQrModal(true)} className="bg-zinc-900 p-8 rounded-[32px] border border-zinc-800 flex flex-col items-center gap-3 active:scale-95 transition"><Icon name="qr-code" className="text-emerald-500" /><span className="text-[10px] font-black uppercase tracking-widest text-zinc-600">QR KOD</span></button>
+                            <div className={`h-56 shrink-0 rounded-[32px] p-8 shadow-2xl bg-gradient-to-br ${selectedCard.color} text-white mb-8 border border-white/20 relative flex flex-col`}>
+                                <div className="flex justify-between items-start">
+                                    <div><p className="text-[10px] font-black opacity-60 uppercase mb-1">{selectedCard.issuer}</p><h3 className="text-3xl font-bold tracking-tighter">{selectedCard.name}</h3></div>
+                                    {selectedCard.brandLogo ? <img src={selectedCard.brandLogo} className="h-10 max-w-[100px] object-contain bg-white/20 p-1.5 rounded-xl backdrop-blur-md shadow-lg" /> : <Icon name={selectedCard.icon} size={40} className="opacity-80" />}
+                                </div>
+                                <div className="mt-auto pt-8"><p className="font-mono text-xl tracking-widest">{selectedCard.details}</p><p className="text-xs font-bold uppercase opacity-60">{selectedCard.ownerName || "İsimsiz Kullanıcı"}</p></div>
                             </div>
+                            
+                            {selectedCard.photo ? (
+                                <div className={`${t.card} border p-4 rounded-[32px] flex flex-col items-center gap-4 mb-8`}>
+                                    <p className="text-[10px] font-bold opacity-40 uppercase tracking-widest pt-2">Kayıtlı Bilet / Kod Görseli</p>
+                                    <img src={selectedCard.photo} className="w-full object-contain rounded-2xl" alt="Bilet Görseli" />
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-2 gap-4 mb-10 shrink-0">
+                                    <button onClick={() => setShowNfcModal(true)} className={`${t.card} p-8 rounded-[32px] border flex flex-col items-center gap-3 active:scale-95 transition`}><Icon name="nfc" className={appTheme === 'neon' ? 'text-cyan-400' : 'text-blue-500'} /><span className="text-[10px] font-black uppercase tracking-widest opacity-80">NFC TEMASSIZ</span></button>
+                                    <button onClick={() => setShowQrModal(true)} className={`${t.card} p-8 rounded-[32px] border flex flex-col items-center gap-3 active:scale-95 transition`}><Icon name="qr-code" className={appTheme === 'neon' ? 'text-cyan-400' : 'text-emerald-500'} /><span className="text-[10px] font-black uppercase tracking-widest opacity-80">QR KOD ÜRET</span></button>
+                                </div>
+                            )}
 
-                            {/* Canvas Uyumlu Kart Silme Onayı */}
                             {!showDeleteConfirm ? (
-                                <button onClick={() => setShowDeleteConfirm(true)} className="text-zinc-800 font-black text-[10px] tracking-[0.3em] uppercase mt-auto pb-10 hover:text-red-500 transition">KARTI SİL</button>
+                                <button onClick={() => setShowDeleteConfirm(true)} className="text-red-500 font-black text-[10px] tracking-[0.3em] uppercase mt-auto pb-10 transition text-center w-full">KARTI SİL</button>
                             ) : (
                                 <div className="mt-auto pb-6">
-                                    <div className="bg-zinc-900 border border-red-900/30 p-5 rounded-[24px] flex flex-col gap-4 animate-in zoom-in-95">
-                                        <p className="text-white text-center font-bold text-sm">Bu kartı silmek istediğinize emin misiniz?</p>
+                                    <div className={`${t.card} border-red-500/50 p-5 rounded-[24px] flex flex-col gap-4 animate-in zoom-in-95 border-2`}>
+                                        <p className="text-center font-bold text-sm">Bu kartı silmek istediğinize emin misiniz?</p>
                                         <div className="flex gap-3">
                                             <button onClick={() => { setCards(cards.filter(c => c.id !== selectedCard.id)); setSelectedCard(null); setShowDeleteConfirm(false); }} className="flex-1 bg-red-600 text-white py-4 rounded-xl font-bold text-xs uppercase tracking-widest active:scale-95">SİL</button>
-                                            <button onClick={() => setShowDeleteConfirm(false)} className="flex-1 bg-zinc-800 text-white py-4 rounded-xl font-bold text-xs uppercase tracking-widest active:scale-95">İPTAL</button>
+                                            <button onClick={() => setShowDeleteConfirm(false)} className={`flex-1 py-4 rounded-xl font-bold text-xs uppercase tracking-widest active:scale-95 border ${t.input}`}>İPTAL</button>
                                         </div>
                                     </div>
                                 </div>
@@ -372,66 +609,50 @@ Metin: "${aiInput}"`;
 
                     {/* QR MODAL */}
                     {showQrModal && (
-                        <div className="absolute inset-0 z-[60] bg-black flex flex-col items-center justify-center p-10 animate-in zoom-in-95">
+                        <div className={`absolute inset-0 z-[60] bg-black/90 backdrop-blur flex flex-col items-center justify-center p-10 animate-in zoom-in-95`}>
                             <button onClick={() => setShowQrModal(false)} className="absolute top-12 right-10 text-white"><Icon name="x" size={32}/></button>
-                            <div className="bg-white p-10 rounded-[40px] flex flex-col items-center">
+                            <div className="bg-white p-10 rounded-[40px] flex flex-col items-center shadow-2xl">
                                 <img src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(selectedCard.details)}`} className="w-56 h-56 mb-8" />
                                 <img src={`https://barcode.tec-it.com/barcode.ashx?data=${encodeURIComponent(selectedCard.details)}&code=Code128`} className="w-64 h-20 object-contain" />
                             </div>
-                            <p className="mt-12 font-mono text-zinc-500 tracking-[0.5em] font-bold">{selectedCard.details}</p>
+                            <p className="mt-12 font-mono text-white tracking-[0.5em] font-bold">{selectedCard.details}</p>
                         </div>
                     )}
 
-                    {/* NFC ÖDEME MODAL */}
+                    {/* NFC MODAL */}
                     {showNfcModal && (
                         <div className="absolute inset-0 z-[60] bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center animate-in fade-in">
-                            <button onClick={() => setShowNfcModal(false)} className="absolute top-12 right-10 text-zinc-500 hover:text-white"><Icon name="x" size={32}/></button>
-                            <div className="w-32 h-32 bg-blue-600/20 rounded-full flex items-center justify-center mb-8 relative">
-                                <div className="absolute inset-0 bg-blue-500/20 rounded-full animate-ping"></div>
-                                <Icon name="nfc" size={64} className="text-blue-500 relative z-10" />
+                            <button onClick={() => setShowNfcModal(false)} className="absolute top-12 right-10 text-white opacity-50 hover:opacity-100"><Icon name="x" size={32}/></button>
+                            <div className={`w-32 h-32 rounded-full flex items-center justify-center mb-8 relative ${appTheme === 'neon' ? 'bg-cyan-900/30' : 'bg-blue-600/20'}`}>
+                                <div className={`absolute inset-0 rounded-full animate-ping border-2 ${appTheme === 'neon' ? 'border-cyan-400' : 'bg-blue-500/20'}`}></div>
+                                <Icon name="nfc" size={64} className={`relative z-10 ${appTheme === 'neon' ? 'text-cyan-400' : 'text-blue-500'}`} />
                             </div>
                             <h2 className="text-2xl font-black mb-2 text-white">Okutulmaya Hazır</h2>
-                            <p className="text-zinc-500 text-center px-12 text-sm">Telefonunuzun arkasını okuyucuya yaklaştırın.</p>
+                            <p className="text-zinc-400 text-center px-12 text-sm">Telefonunuzun arkasını okuyucuya yaklaştırın.</p>
                         </div>
                     )}
 
-                    {/* ÖZEL ALERT MODALI (Canvas Uyumlu) */}
+                    {/* ALERT MODALI */}
                     {alertData && (
-                        <div className="absolute inset-0 z-[90] bg-black/80 flex items-center justify-center p-8 animate-in fade-in">
-                            <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-3xl w-full max-w-sm text-center shadow-2xl">
-                                <h3 className="text-xl font-bold text-white mb-2">{alertData.title}</h3>
-                                <p className="text-zinc-400 text-sm mb-8 leading-relaxed">{alertData.message}</p>
-                                <button onClick={() => setAlertData(null)} className="w-full bg-blue-600 text-white font-bold py-4 rounded-xl active:scale-95 transition">Tamam</button>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* NFC İNFO BİLGİ MODALI */}
-                    {showNfcInfo && (
-                        <div className="absolute inset-0 z-[80] bg-black/90 flex items-center justify-center p-8 animate-in fade-in">
-                            <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-[32px] w-full max-w-sm text-center shadow-2xl">
-                                <div className="w-16 h-16 bg-blue-500/10 rounded-full flex items-center justify-center mx-auto mb-6 text-blue-500">
-                                    <Icon name="info" size={32} />
-                                </div>
-                                <h3 className="text-xl font-black text-white mb-4 tracking-tight">NFC Bilgilendirmesi</h3>
-                                <p className="text-zinc-400 text-sm mb-8 leading-relaxed">
-                                    Web üzerinden NFC ile kart okuma özelliği, Apple güvenlik kısıtlamaları nedeniyle <b>iOS (iPhone) cihazlarda çalışmamaktadır.</b>
-                                    <br/><br/>
-                                    Bu özelliği yalnızca <b>Android</b> cihazlarda ve <b>Google Chrome</b> tarayıcısında kullanabilirsiniz.
-                                </p>
-                                <button onClick={() => setShowNfcInfo(false)} className="w-full bg-white text-black font-black py-4 rounded-2xl active:scale-95 transition">ANLADIM</button>
+                        <div className="absolute inset-0 z-[90] bg-black/80 backdrop-blur-sm flex items-center justify-center p-8 animate-in fade-in">
+                            <div className={`${t.card} border-2 p-8 rounded-3xl w-full max-w-sm text-center shadow-2xl`}>
+                                <h3 className="text-xl font-bold mb-2">{alertData.title}</h3>
+                                <p className="opacity-60 text-sm mb-8 leading-relaxed">{alertData.message}</p>
+                                <button onClick={() => setAlertData(null)} className={`w-full py-4 rounded-xl active:scale-95 transition font-bold uppercase tracking-widest ${appTheme === 'light' ? 'bg-slate-900 text-white' : (appTheme === 'neon' ? 'bg-cyan-500 text-black shadow-[0_0_15px_rgba(34,211,238,0.4)]' : 'bg-white text-black')}`}>Tamam</button>
                             </div>
                         </div>
                     )}
 
                     {/* ALT MENÜ */}
-                    <nav className="absolute bottom-0 w-full bg-zinc-950/95 backdrop-blur-xl border-t border-white/5 flex justify-around py-5 pb-9 px-8 z-40">
-                        {[{id:'wallet',i:'wallet',l:'CÜZDAN'},{id:'add',i:'plus',l:'EKLE'},{id:'settings',i:'settings',l:'AYARLAR'}].map(t => (
-                            <button key={t.id} onClick={() => {setActiveTab(t.id); setPinSetupStep(0);}} className={`flex flex-col items-center gap-1.5 transition-all ${activeTab === t.id && pinSetupStep === 0 ? 'text-white scale-110' : 'text-zinc-600'}`}>
-                                <Icon name={t.i} size={22} /><span className="text-[8px] font-black tracking-widest">{t.l}</span>
-                            </button>
-                        ))}
-                    </nav>
+                    {activeTab !== 'corporate' && (
+                        <nav className={`absolute bottom-0 w-full backdrop-blur-xl border-t flex justify-around py-5 pb-9 px-8 z-40 transition-colors ${t.nav}`}>
+                            {[{id:'wallet',i:'wallet',l:'CÜZDAN'},{id:'add',i:'plus',l:'EKLE'},{id:'settings',i:'settings',l:'AYARLAR'}].map(tab => (
+                                <button key={tab.id} onClick={() => {setActiveTab(tab.id); setPinSetupStep(0);}} className={`flex flex-col items-center gap-1.5 transition-all ${activeTab === tab.id && pinSetupStep === 0 ? (appTheme === 'neon' ? 'text-cyan-400 scale-110 drop-shadow-[0_0_8px_rgba(34,211,238,0.5)]' : (appTheme === 'light' ? 'text-slate-900 scale-110' : 'text-white scale-110')) : 'opacity-40 hover:opacity-80'}`}>
+                                    <Icon name={tab.i} size={22} /><span className="text-[8px] font-black tracking-widest">{tab.l}</span>
+                                </button>
+                            ))}
+                        </nav>
+                    )}
                 </div>
             );
         }
