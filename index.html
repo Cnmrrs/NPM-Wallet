@@ -357,8 +357,9 @@
                                             </div>
                                         </div>
                                         <div className="mb-8">
+                                            <p className="text-[10px] font-bold opacity-50 uppercase tracking-widest mb-3 ml-1">Renk Paleti</p>
                                             <div className="flex gap-3 overflow-x-auto pb-2 custom-scrollbar">
-                                                {CARD_COLORS.map(c => <button key={c} type="button" onClick={() => setNewCard({...newCard, color: c})} className={`w-12 h-12 rounded-2xl shrink-0 bg-gradient-to-br ${c} transition-all ${newCard.color === c ? 'ring-2 ring-current ring-offset-4 scale-110' : 'opacity-40'}`} />)}
+                                                {CARD_COLORS.map(c => <button key={c} type="button" onClick={() => setNewCard({...newCard, color: c})} className={`w-12 h-12 rounded-2xl shrink-0 bg-gradient-to-br ${c} transition-all duration-300 ${newCard.color === c ? 'ring-2 ring-current ring-offset-4 scale-110' : 'opacity-40 hover:opacity-100'}`} />)}
                                             </div>
                                         </div>
                                         <button onClick={() => { 
@@ -377,20 +378,40 @@
                                         </div>
                                         <div className="space-y-6">
                                             <div className={`${t.card} p-5 rounded-3xl border-2`}>
+                                                
+                                                <div className="flex flex-wrap gap-2 mb-4">
+                                                    {allCategories.map(cat => (
+                                                        <button key={cat.id} onClick={() => setCorpForm({...corpForm, categoryId: cat.id})} className={`px-4 py-2 rounded-xl border-2 flex items-center gap-2 transition ${corpForm.categoryId === cat.id ? 'border-blue-500 text-blue-500 bg-blue-500/10' : 'border-transparent opacity-40 bg-zinc-800/30'}`}>
+                                                            <Icon name={cat.icon} size={14} /><span className="text-[10px] font-black uppercase">{cat.name}</span>
+                                                        </button>
+                                                    ))}
+                                                </div>
+
                                                 <input placeholder="Marka" className={`w-full p-4 rounded-xl outline-none font-bold border-2 mb-3 ${t.input}`} value={corpForm.issuer} onChange={e => setCorpForm({...corpForm, issuer: e.target.value})} />
                                                 <input placeholder="Bilet Adı" className={`w-full p-4 rounded-xl outline-none font-bold border-2 mb-3 ${t.input}`} value={corpForm.name} onChange={e => setCorpForm({...corpForm, name: e.target.value})} />
                                                 <div className="flex items-center justify-between p-3 bg-zinc-900 rounded-xl mb-3">
-                                                    <span className="text-xs font-bold">Logo</span>
+                                                    <span className="text-xs font-bold text-white">Logo (Opsiyonel)</span>
                                                     <input type="file" accept="image/*" ref={corpLogoRef} onChange={handleCorpLogUpload} className="hidden"/>
                                                     <button onClick={() => corpLogoRef.current.click()} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-xs">SEÇ</button>
                                                 </div>
+
+                                                {/* KURUMLAR İÇİN RENK PALETİ */}
+                                                <div className="mb-4">
+                                                    <p className="text-[10px] font-bold opacity-50 uppercase tracking-widest mb-2 text-white">Marka Rengi</p>
+                                                    <div className="flex gap-2 overflow-x-auto pb-2 custom-scrollbar">
+                                                        {CARD_COLORS.map(c => (
+                                                            <button key={c} onClick={() => setCorpForm({...corpForm, color: c})} className={`w-10 h-10 rounded-xl shrink-0 bg-gradient-to-br ${c} transition-all ${corpForm.color === c ? 'ring-2 ring-blue-500 scale-110' : 'opacity-40 hover:opacity-100'}`} />
+                                                        ))}
+                                                    </div>
+                                                </div>
+
                                                 <div className="flex items-center justify-between mb-4 bg-zinc-900 p-3 rounded-xl">
-                                                    <label className="text-xs font-bold uppercase">Adet:</label>
+                                                    <label className="text-xs font-bold uppercase text-white">Adet:</label>
                                                     <input type="number" min="1" max="500" className="w-20 p-2 rounded-lg bg-black text-white text-center font-bold outline-none border border-zinc-700" value={bulkAmount} onChange={e => setBulkAmount(e.target.value)} />
                                                 </div>
                                                 <textarea placeholder="İsimler (Satır satır)" className={`w-full p-4 rounded-xl outline-none text-xs border-2 mb-4 h-24 ${t.input}`} value={corpNamesText} onChange={e => setCorpNamesText(e.target.value)}></textarea>
                                                 <div className="flex items-center justify-between p-4 bg-zinc-900 rounded-xl mb-2">
-                                                    <span className="text-xs font-bold">QR Fotoğrafları</span>
+                                                    <span className="text-xs font-bold text-white">QR Fotoğrafları</span>
                                                     <input type="file" accept="image/*" multiple ref={corpQRsRef} onChange={handleCorpQRsUpload} className="hidden"/>
                                                     <button onClick={() => corpQRsRef.current.click()} className="bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs">{corpQRs.length > 0 ? `${corpQRs.length} ADET` : 'YÜKLE'}</button>
                                                 </div>
@@ -552,7 +573,7 @@
                             )}
 
                             {showQrModal && (
-                                <div className={`absolute inset-0 z-[60] bg-black flex flex-col items-center justify-center p-10 animate-in zoom-in-95`}>
+                                <div className={`absolute inset-0 z-[60] bg-black/90 backdrop-blur flex flex-col items-center justify-center p-10 animate-in zoom-in-95`}>
                                     <button onClick={() => setShowQrModal(false)} className="absolute top-12 right-10 text-white"><Icon name="x" size={32}/></button>
                                     <div className="bg-white p-10 rounded-[40px] flex flex-col items-center shadow-2xl">
                                         <img src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(selectedCard.details)}`} className="w-56 h-56 mb-8" />
@@ -604,6 +625,21 @@
                                 </div>
                             )}
 
+                            {showCorpLogin && (
+                                <div className="absolute inset-0 z-[180] bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-8 animate-in fade-in">
+                                    <div className="bg-zinc-900 border border-blue-500/30 p-8 rounded-3xl w-full max-w-sm text-center shadow-[0_0_30px_rgba(59,130,246,0.2)] text-white">
+                                        <Icon name="building-2" size={48} className="text-blue-500 mx-auto mb-4" />
+                                        <h3 className="text-xl font-black mb-2 uppercase">Kurumsal Panel</h3>
+                                        <p className="text-zinc-400 text-xs mb-4">Yetkili şifresini girin.</p>
+                                        <input type="password" placeholder="Şifre" className="w-full bg-black border border-zinc-800 p-4 rounded-xl text-center text-white font-mono tracking-widest outline-none focus:border-blue-500 mb-6" value={corpLoginPin} onChange={e => setCorpLoginPin(e.target.value)} />
+                                        <div className="flex gap-3">
+                                            <button onClick={() => { if (corpLoginPin === 'NPM5') { setShowCorpLogin(false); setActiveTab('corporate'); setCorpLoginPin(''); } else { setAlertData({title: "Hata", message: "Şifre yanlış."}); setCorpLoginPin(''); } }} className="flex-1 bg-blue-600 text-white font-bold py-4 rounded-xl active:scale-95 transition">GİRİŞ</button>
+                                            <button onClick={() => setShowCorpLogin(false)} className="px-6 bg-zinc-800 text-white font-bold py-4 rounded-xl active:scale-95 transition">İPTAL</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
                             {activeTab !== 'corporate' && (
                                 <nav className={`absolute bottom-0 w-full backdrop-blur-xl border-t flex justify-around py-5 pb-9 px-8 z-40 transition-colors ${t.nav}`}>
                                     {[{id:'wallet',i:'wallet',l:'CÜZDAN'},{id:'add',i:'plus',l:'EKLE'},{id:'settings',i:'settings',l:'AYARLAR'}].map(tab => (
@@ -614,20 +650,6 @@
                                 </nav>
                             )}
                         </>
-                    )}
-
-                    {showCorpLogin && (
-                        <div className="absolute inset-0 z-[180] bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-8 animate-in fade-in">
-                            <div className="bg-zinc-900 border border-blue-500/30 p-8 rounded-3xl w-full max-w-sm text-center shadow-2xl text-white">
-                                <Icon name="building-2" size={48} className="text-blue-500 mx-auto mb-4" />
-                                <h3 className="text-xl font-black mb-2 uppercase">Yönetici</h3>
-                                <input type="password" placeholder="Şifre" className="w-full bg-black border border-zinc-800 p-4 rounded-xl text-center text-white font-mono tracking-widest outline-none focus:border-blue-500 mb-6 mt-6" value={corpLoginPin} onChange={e => setCorpLoginPin(e.target.value)} />
-                                <div className="flex gap-3">
-                                    <button onClick={() => { if (corpLoginPin === 'NPM5') { setShowCorpLogin(false); setActiveTab('corporate'); setCorpLoginPin(''); } else { setAlertData({title: "Hata", message: "Şifre yanlış."}); setCorpLoginPin(''); } }} className="flex-1 bg-blue-600 text-white font-bold py-4 rounded-xl">GİRİŞ</button>
-                                    <button onClick={() => setShowCorpLogin(false)} className="px-6 bg-zinc-800 text-white font-bold py-4 rounded-xl">İPTAL</button>
-                                </div>
-                            </div>
-                        </div>
                     )}
                 </div>
             );
