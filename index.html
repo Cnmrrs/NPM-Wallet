@@ -209,6 +209,32 @@
                 if(e.target.files[0]) resizeImage(e.target.files[0], 600, (base64) => setNewCard({...newCard, photo: base64}));
             };
 
+            // --- GERÇEK NFC OKUMA İŞLEMİ ---
+            const scanNfcCard = async () => {
+                if ('NDEFReader' in window) {
+                    try {
+                        const ndef = new window.NDEFReader();
+                        await ndef.scan();
+                        setAlertData({ title: "NFC Aktif", message: "Lütfen fiziksel bir kartı veya bileti telefonun arkasına yaklaştırın." });
+                        
+                        ndef.addEventListener("reading", ({ serialNumber }) => {
+                            if (serialNumber) {
+                                // Okunan seri numarasını temizleyip büyük harfe çeviriyoruz
+                                const formattedUID = serialNumber.replace(/:/g, '').toUpperCase();
+                                setNewCard(prev => ({ ...prev, details: formattedUID }));
+                                setAlertData({ title: "Başarılı!", message: `Kart okundu! Çip No: ${formattedUID}` });
+                            } else {
+                                setAlertData({ title: "Uyarı", message: "Kart algılandı ancak seri numarası okunamadı." });
+                            }
+                        });
+                    } catch (error) {
+                        setAlertData({ title: "NFC Hatası", message: "NFC okuyucu başlatılamadı. Tarayıcınızın izinlerini kontrol edin. Hata: " + error.message });
+                    }
+                } else {
+                    setAlertData({ title: "Desteklenmiyor", message: "Web NFC sadece Android cihazlarda (Google Chrome) çalışmaktadır. Apple cihazlar güvenlik nedeniyle tarayıcıdan NFC erişimine izin vermez." });
+                }
+            };
+
             // --- KURUMSAL ---
             const handleCorpLogUpload = (e) => {
                 if(e.target.files[0]) resizeImage(e.target.files[0], 200, (base64) => setCorpForm({...corpForm, brandLogo: base64}));
@@ -350,7 +376,15 @@
                                             <input placeholder="Kurum/Marka Adı" className={`w-full p-5 rounded-2xl outline-none border-2 ${t.input}`} value={newCard.issuer} onChange={e => setNewCard({...newCard, issuer: e.target.value})} />
                                             <input placeholder="Kart Başlığı" className={`w-full p-5 rounded-2xl outline-none border-2 ${t.input}`} value={newCard.name} onChange={e => setNewCard({...newCard, name: e.target.value})} />
                                             <input placeholder="İsim Soyisim" className={`w-full p-5 rounded-2xl outline-none border-2 uppercase ${t.input}`} value={newCard.ownerName} onChange={e => setNewCard({...newCard, ownerName: e.target.value.toUpperCase()})} />
-                                            <input placeholder="Bilet No / Kart No" className={`w-full p-5 rounded-2xl outline-none font-mono border-2 ${t.input}`} value={newCard.details} onChange={e => setNewCard({...newCard, details: e.target.value})} />
+                                            
+                                            <div className="flex gap-2">
+                                                <input placeholder="Bilet No / Kart No" className={`w-full p-5 rounded-2xl outline-none font-mono border-2 ${t.input}`} value={newCard.details} onChange={e => setNewCard({...newCard, details: e.target.value})} />
+                                                <button onClick={scanNfcCard} className={`px-4 rounded-2xl flex flex-col items-center justify-center font-bold active:scale-95 transition border-2 ${appTheme === 'neon' ? 'border-cyan-400 text-cyan-400 bg-cyan-900/20' : 'border-blue-500 text-blue-500 bg-blue-500/10'}`}>
+                                                    <Icon name="nfc" size={24} />
+                                                    <span className="text-[10px] mt-1 uppercase font-black">Okut</span>
+                                                </button>
+                                            </div>
+
                                             <div className={`${t.card} border-dashed p-4 rounded-2xl flex items-center justify-between border-2`}>
                                                 <div className="flex items-center gap-3">
                                                     <Icon name="camera" size={20} className="opacity-50"/>
@@ -591,10 +625,17 @@
                                 <div className="absolute inset-0 z-[60] bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center animate-in fade-in">
                                     <button onClick={() => setShowNfcModal(false)} className="absolute top-12 right-10 text-white opacity-50 hover:opacity-100"><Icon name="x" size={32}/></button>
                                     <div className={`w-32 h-32 rounded-full flex items-center justify-center mb-8 relative ${appTheme === 'neon' ? 'bg-cyan-900/30' : 'bg-blue-600/20'}`}>
+                                        <div className={`absolute inset-0 rounded-full animate-ping border-2 ${appTheme === 'neon' ? 'border-cyan-400' : 'border-blue-500 opacity-50'}`}></div>
                                         <Icon name="nfc" size={64} className={`${appTheme === 'neon' ? 'text-cyan-400' : 'text-blue-500'}`} />
                                     </div>
-                                    <h2 className="text-2xl font-black mb-2 text-white uppercase">NFC</h2>
-                                    <p className="text-zinc-400 text-center px-12 text-sm">Telefonunuzu yaklaştırın.</p>
+                                    <h2 className="text-2xl font-black mb-2 text-white uppercase text-center">NFC SİNYALİ<br/>YAYINLANIYOR</h2>
+                                    <p className="text-zinc-400 text-center px-12 text-sm mb-6">Cihazınızı POS cihazına veya okuyucuya yaklaştırın.</p>
+                                    
+                                    <div className="bg-zinc-900 border border-zinc-800 p-4 rounded-2xl mx-8">
+                                        <p className="text-[10px] text-zinc-500 text-center font-medium leading-relaxed">
+                                            <b>Not:</b> Apple ve Google, web sitelerinin POS cihazlarına ödeme yapmasını güvenlik nedeniyle engeller. Bu özellik görsel doğrulamadır. Fiziksel kart okuma işlemini ise "Kart Ekle" bölümünden yapabilirsiniz.
+                                        </p>
+                                    </div>
                                 </div>
                             )}
 
