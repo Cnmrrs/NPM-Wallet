@@ -310,19 +310,23 @@
                                             <h1 className="text-4xl font-black tracking-tighter">Cüzdanım</h1>
                                             <button onClick={() => setActiveTab('add')} className={`w-12 h-12 rounded-full flex items-center justify-center shadow-lg active:scale-95 transition ${appTheme === 'light' ? 'bg-slate-900 text-white' : (appTheme === 'neon' ? 'bg-cyan-500 text-black shadow-[0_0_15px_rgba(34,211,238,0.6)]' : 'bg-white text-black')}`}><Icon name="plus" /></button>
                                         </div>
+                                        
                                         <div className="relative">
-                                            {cards.map((card, i) => (
-                                                <div key={card.id} onClick={() => setSelectedCard(card)} className="h-52 rounded-[28px] p-6 mb-[-140px] shadow-[0_10px_40px_rgba(0,0,0,0.5)] bg-gradient-to-br border border-white/20 transition-transform active:scale-95 cursor-pointer relative text-white" style={{ top: `${i * 0}px`, backgroundImage: `linear-gradient(to bottom right, ${card.color.split(' ')[0].replace('from-', '')}, ${card.color.split(' ')[1].replace('to-', '')})`, zIndex: i }}>
+                                            {/* Kartları ters çevirerek mapliyoruz: Eskiler yukarıda, yeniler altta. */}
+                                            {[...cards].reverse().map((card, i) => (
+                                                <div key={card.id} onClick={() => setSelectedCard(card)} className={`h-52 rounded-[28px] p-6 mb-[-140px] shadow-[0_-10px_30px_rgba(0,0,0,0.5)] bg-gradient-to-br ${card.color} border-t border-white/20 transition-transform active:scale-95 cursor-pointer relative text-white`} style={{ zIndex: i }}>
                                                     <div className="flex justify-between items-start">
                                                         <div><p className="text-[10px] font-black opacity-60 uppercase mb-1">{card.issuer}</p><h3 className="text-2xl font-bold tracking-tight">{card.name}</h3></div>
                                                         {card.brandLogo ? <img src={card.brandLogo} className="h-8 max-w-[80px] object-contain bg-white/20 p-1 rounded-lg" /> : <Icon name={card.icon} size={32} className="opacity-80" />}
                                                     </div>
                                                     <div className="mt-auto pt-16 flex justify-between items-end">
                                                         <div><p className="font-mono text-sm tracking-widest opacity-90">{card.details}</p><p className="text-[10px] font-bold mt-2 uppercase opacity-60">{card.ownerName}</p></div>
-                                                        {card.photo && <Icon name="image" size={16} className="opacity-40" />}
+                                                        {card.photo && <Icon name="image" size={16} className="opacity-40 mb-1" />}
                                                     </div>
                                                 </div>
                                             ))}
+                                            {/* Listenin en altı kesilmesin diye boşluk eklendi */}
+                                            {cards.length > 0 && <div className="h-40 w-full"></div>}
                                             {cards.length === 0 && <div className="text-center py-40 opacity-30 flex flex-col items-center"><Icon name="wallet" size={64} className="mb-4" /><p className="font-bold text-xs uppercase tracking-widest">Cüzdan Boş</p></div>}
                                         </div>
                                     </>
@@ -366,7 +370,7 @@
                                             if(!newCard.name || !newCard.details) return;
                                             setCards([{...newCard, id: Date.now().toString(), icon: allCategories.find(c => c.id === newCard.categoryId)?.icon || 'credit-card'}, ...cards]); 
                                             setActiveTab('wallet'); setNewCard({ categoryId: 'payment', issuer: '', name: '', ownerName: '', details: '', color: 'from-zinc-800 to-black', photo: null });
-                                        }} className={`w-full py-5 rounded-[24px] font-black text-lg active:scale-95 transition ${appTheme === 'light' ? 'bg-slate-900 text-white' : (appTheme === 'neon' ? 'bg-cyan-500 text-black shadow-[0_0_15px_rgba(34,211,238,0.5)]' : 'bg-white text-black')}`}>CÜZDANA EKLE</button>
+                                        }} className={`w-full py-5 rounded-[24px] font-black text-lg active:scale-95 transition shadow-lg ${appTheme === 'light' ? 'bg-slate-900 text-white' : (appTheme === 'neon' ? 'bg-cyan-500 text-black shadow-[0_0_15px_rgba(34,211,238,0.5)]' : 'bg-white text-black')}`}>CÜZDANA EKLE</button>
                                     </div>
                                 )}
 
@@ -625,21 +629,6 @@
                                 </div>
                             )}
 
-                            {showCorpLogin && (
-                                <div className="absolute inset-0 z-[180] bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-8 animate-in fade-in">
-                                    <div className="bg-zinc-900 border border-blue-500/30 p-8 rounded-3xl w-full max-w-sm text-center shadow-[0_0_30px_rgba(59,130,246,0.2)] text-white">
-                                        <Icon name="building-2" size={48} className="text-blue-500 mx-auto mb-4" />
-                                        <h3 className="text-xl font-black mb-2 uppercase">Kurumsal Panel</h3>
-                                        <p className="text-zinc-400 text-xs mb-4">Yetkili şifresini girin.</p>
-                                        <input type="password" placeholder="Şifre" className="w-full bg-black border border-zinc-800 p-4 rounded-xl text-center text-white font-mono tracking-widest outline-none focus:border-blue-500 mb-6" value={corpLoginPin} onChange={e => setCorpLoginPin(e.target.value)} />
-                                        <div className="flex gap-3">
-                                            <button onClick={() => { if (corpLoginPin === 'NPM5') { setShowCorpLogin(false); setActiveTab('corporate'); setCorpLoginPin(''); } else { setAlertData({title: "Hata", message: "Şifre yanlış."}); setCorpLoginPin(''); } }} className="flex-1 bg-blue-600 text-white font-bold py-4 rounded-xl active:scale-95 transition">GİRİŞ</button>
-                                            <button onClick={() => setShowCorpLogin(false)} className="px-6 bg-zinc-800 text-white font-bold py-4 rounded-xl active:scale-95 transition">İPTAL</button>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-
                             {activeTab !== 'corporate' && (
                                 <nav className={`absolute bottom-0 w-full backdrop-blur-xl border-t flex justify-around py-5 pb-9 px-8 z-40 transition-colors ${t.nav}`}>
                                     {[{id:'wallet',i:'wallet',l:'CÜZDAN'},{id:'add',i:'plus',l:'EKLE'},{id:'settings',i:'settings',l:'AYARLAR'}].map(tab => (
@@ -650,6 +639,21 @@
                                 </nav>
                             )}
                         </>
+                    )}
+
+                    {showCorpLogin && (
+                        <div className="absolute inset-0 z-[180] bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-8 animate-in fade-in">
+                            <div className="bg-zinc-900 border border-blue-500/30 p-8 rounded-3xl w-full max-w-sm text-center shadow-[0_0_30px_rgba(59,130,246,0.2)] text-white">
+                                <Icon name="building-2" size={48} className="text-blue-500 mx-auto mb-4" />
+                                <h3 className="text-xl font-black mb-2 uppercase">Kurumsal Panel</h3>
+                                <p className="text-zinc-400 text-xs mb-4">Yetkili şifresini girin.</p>
+                                <input type="password" placeholder="Şifre" className="w-full bg-black border border-zinc-800 p-4 rounded-xl text-center text-white font-mono tracking-widest outline-none focus:border-blue-500 mb-6" value={corpLoginPin} onChange={e => setCorpLoginPin(e.target.value)} />
+                                <div className="flex gap-3">
+                                    <button onClick={() => { if (corpLoginPin === 'NPM5') { setShowCorpLogin(false); setActiveTab('corporate'); setCorpLoginPin(''); } else { setAlertData({title: "Hata", message: "Şifre yanlış."}); setCorpLoginPin(''); } }} className="flex-1 bg-blue-600 text-white font-bold py-4 rounded-xl active:scale-95 transition">GİRİŞ</button>
+                                    <button onClick={() => setShowCorpLogin(false)} className="px-6 bg-zinc-800 text-white font-bold py-4 rounded-xl active:scale-95 transition">İPTAL</button>
+                                </div>
+                            </div>
+                        </div>
                     )}
                 </div>
             );
