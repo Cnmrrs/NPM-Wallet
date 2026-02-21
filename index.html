@@ -25,9 +25,29 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
         
+        // Hata Düzeltme: Lucide ikonlarının React reconciliation sürecini bozmasını engellemek için ref kullanıyoruz.
         const Icon = ({ name, size = 24, className = "" }) => {
-            useEffect(() => { lucide.createIcons(); }, [name]);
-            return <i data-lucide={name} style={{ width: size, height: size }} className={className}></i>;
+            const iconRef = useRef(null);
+            
+            useEffect(() => {
+                if (window.lucide && iconRef.current) {
+                    // Sadece bu root içindeki ikonu oluştur, tüm DOM'u tarama
+                    window.lucide.createIcons({
+                        root: iconRef.current,
+                        attrs: {
+                            width: size,
+                            height: size,
+                            class: className
+                        }
+                    });
+                }
+            }, [name, size, className]);
+
+            return (
+                <span ref={iconRef} className="inline-flex items-center justify-center pointer-events-none" style={{ width: size, height: size }}>
+                    <i data-lucide={name}></i>
+                </span>
+            );
         };
 
         const INITIAL_CATEGORIES = [
@@ -59,7 +79,7 @@
             const [cards, setCards] = useState(() => JSON.parse(localStorage.getItem('npm_v4_cards') || '[]'));
             const [appPin, setAppPin] = useState(localStorage.getItem('npm_v4_pin'));
             
-            // YENİ: Şifre İpucu Sistemi
+            // Şifre İpucu Sistemi
             const [appPinHint, setAppPinHint] = useState(() => localStorage.getItem('npm_v4_pin_hint') || '');
             const [pinHintInput, setPinHintInput] = useState('');
             const [showForgotPin, setShowForgotPin] = useState(false);
@@ -75,17 +95,17 @@
             const [enteredPin, setEnteredPin] = useState('');
             const [selectedCard, setSelectedCard] = useState(null);
             
-            // UI Modals
+            // UI Modalları
             const [showQrModal, setShowQrModal] = useState(false);
             const [showNfcModal, setShowNfcModal] = useState(false);
             const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
             const [showNfcInfo, setShowNfcInfo] = useState(false);
-            const [showResetConfirm, setShowResetConfirm] = useState(false); // Canvas hatasını çözer
+            const [showResetConfirm, setShowResetConfirm] = useState(false);
             const [alertData, setAlertData] = useState(null);
             const [namePromptCard, setNamePromptCard] = useState(null);
             const [tempNameInput, setTempNameInput] = useState('');
 
-            // Kurumsal Sistem Modalları
+            // Kurumsal Panel State
             const [showCorpLogin, setShowCorpLogin] = useState(false);
             const [corpLoginPin, setCorpLoginPin] = useState('');
             const [corpForm, setCorpForm] = useState({ categoryId: 'ticket', issuer: '', brandLogo: null, name: '', color: 'from-zinc-800 to-black', detailsPrefix: 'KOD-' });
@@ -99,7 +119,7 @@
             const [newCatName, setNewCatName] = useState('');
             const [newCatIcon, setNewCatIcon] = useState(CUSTOM_ICONS[0]);
 
-            const [pinSetupStep, setPinSetupStep] = useState(0);
+            const [pinSetupStep, setPinSetupStep] = useState(0); // 0: kapalı, 1: yeni gir, 2: tekrarla, 3: ipucu
             const [tempPin, setTempPin] = useState('');
 
             const [newCard, setNewCard] = useState({ categoryId: 'payment', issuer: '', name: '', ownerName: '', details: '', color: 'from-zinc-800 to-black', photo: null, brandLogo: null });
@@ -114,7 +134,7 @@
             useEffect(() => { localStorage.setItem('npm_saved_user_name', savedUserName); }, [savedUserName]);
             useEffect(() => { localStorage.setItem('npm_v4_cats', JSON.stringify(customCategories)); }, [customCategories]);
 
-            // --- .npmwallet DIŞA AKTAR ---
+            // --- DOSYA İŞLEMLERİ ---
             const exportCard = (card) => {
                 try {
                     const jsonStr = JSON.stringify(card);
@@ -124,12 +144,11 @@
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = url;
-                    a.download = `${card.name.replace(/\s+/g, '_')}_${Date.now()}.npmwallet`;
+                    a.download = `${card.name.replace(/\s+/g, '_')}.npmwallet`;
                     document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-                } catch (err) { setAlertData({ title: "Hata", message: "Kart dışa aktarılamadı." }); }
+                } catch (err) { setAlertData({ title: "Hata", message: "Dışa aktarma başarısız." }); }
             };
 
-            // --- .npmwallet İÇE AKTAR ---
             const handleImportFile = (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
@@ -142,17 +161,14 @@
                             const decodedStr = decodeURIComponent(escape(atob(base64Data)));
                             const importedCard = JSON.parse(decodedStr);
                             importedCard.id = Date.now().toString();
-                            
                             if (!importedCard.ownerName || importedCard.ownerName.trim() === '') {
                                 setNamePromptCard(importedCard);
                                 setTempNameInput(savedUserName);
                             } else {
                                 finalizeImport(importedCard);
                             }
-                        } catch (err) { setAlertData({ title: "Dosya Bozuk", message: ".npmwallet dosyası hasarlı." }); }
-                    } else {
-                        setAlertData({ title: "Geçersiz", message: "Bu geçerli bir NPM Wallet dosyası değil." });
-                    }
+                        } catch (err) { setAlertData({ title: "Hata", message: "Dosya okunamadı." }); }
+                    } else { setAlertData({ title: "Hata", message: "Geçersiz dosya formatı." }); }
                     e.target.value = null;
                 };
                 reader.readAsText(file);
@@ -161,15 +177,13 @@
             const finalizeImport = (cardToImport) => {
                 setCards(prev => [cardToImport, ...prev]);
                 setActiveTab('wallet');
-                setAlertData({ title: "Başarılı!", message: `"${cardToImport.name}" başarıyla cüzdana yüklendi!` });
+                setAlertData({ title: "Başarılı!", message: "Kart cüzdana eklendi." });
                 setNamePromptCard(null);
             };
 
             const handleNamePromptSubmit = (useSaved) => {
                 const finalName = useSaved ? savedUserName : tempNameInput.toUpperCase();
-                if (!finalName.trim()) {
-                    setAlertData({title:"Uyarı", message:"Lütfen isminizi girin."}); return;
-                }
+                if (!finalName.trim()) return;
                 setSavedUserName(finalName);
                 finalizeImport({ ...namePromptCard, ownerName: finalName });
             };
@@ -195,194 +209,132 @@
                 if(e.target.files[0]) resizeImage(e.target.files[0], 600, (base64) => setNewCard({...newCard, photo: base64}));
             };
 
-            // --- KURUMSAL TOPLU ÜRETİM FONKSİYONLARI ---
+            // --- KURUMSAL ---
             const handleCorpLogUpload = (e) => {
                 if(e.target.files[0]) resizeImage(e.target.files[0], 200, (base64) => setCorpForm({...corpForm, brandLogo: base64}));
             };
 
             const handleCorpQRsUpload = (e) => {
                 const files = Array.from(e.target.files).slice(0, 500);
-                setAlertData({title: "Yükleniyor", message: `${files.length} QR/Bilet fotoğrafı işleniyor, lütfen bekleyin...`});
                 let processed = 0; const newQRs = [];
-                if(files.length === 0) return;
                 files.forEach(file => {
                     resizeImage(file, 500, (base64) => {
-                        newQRs.push(base64);
-                        processed++;
-                        if (processed === files.length) {
-                            setCorpQRs(newQRs);
-                            setAlertData({title: "Başarılı", message: `${files.length} QR/Bilet fotoğrafı hafızaya alındı!`});
-                        }
+                        newQRs.push(base64); processed++;
+                        if (processed === files.length) setCorpQRs(newQRs);
                     });
                 });
             };
 
             const generateBulkCards = () => {
-                if (!corpForm.issuer || !corpForm.name) {
-                    setAlertData({title: "Eksik", message: "Marka Adı ve Kart Adı zorunludur."}); return;
-                }
                 const namesList = corpNamesText.split('\n').map(n => n.trim()).filter(n => n);
-                
-                let requestedCount = parseInt(bulkAmount);
-                if (isNaN(requestedCount) || requestedCount < 1) requestedCount = 1;
-                if (requestedCount > 500) requestedCount = 500;
-
+                let requestedCount = parseInt(bulkAmount) || 1;
                 const finalCount = Math.min(Math.max(requestedCount, namesList.length, corpQRs.length), 500);
-
                 const generated = [];
                 for(let i=0; i<finalCount; i++) {
                     const catIcon = allCategories.find(c => c.id === corpForm.categoryId)?.icon || 'ticket';
                     generated.push({
                         id: 'corp_' + Date.now().toString() + i,
-                        categoryId: corpForm.categoryId,
-                        issuer: corpForm.issuer,
-                        name: corpForm.name,
-                        color: corpForm.color,
-                        icon: catIcon,
-                        brandLogo: corpForm.brandLogo,
-                        ownerName: namesList[i] || '', 
-                        details: corpForm.detailsPrefix + (i+1000).toString(),
+                        categoryId: corpForm.categoryId, issuer: corpForm.issuer, name: corpForm.name,
+                        color: corpForm.color, icon: catIcon, brandLogo: corpForm.brandLogo,
+                        ownerName: namesList[i] || '', details: corpForm.detailsPrefix + (i+1000).toString(),
                         photo: corpQRs[i] || null
                     });
                 }
                 setGeneratedCorpCards(generated);
-                setAlertData({title: "Toplu Üretim Tamamlandı", message: `Tam ${generated.length} adet kart oluşturuldu.`});
             };
 
             const addCustomCategory = () => {
-                if(!newCatName.trim()) { setAlertData({title:"Hata", message:"Kategori adı girin."}); return; }
-                const newCat = { id: 'custom_' + Date.now(), name: newCatName, icon: newCatIcon };
-                setCustomCategories([...customCategories, newCat]);
+                if(!newCatName.trim()) return;
+                setCustomCategories([...customCategories, { id: 'custom_' + Date.now(), name: newCatName, icon: newCatIcon }]);
                 setNewCatName('');
-                setAlertData({title:"Başarılı", message:"Kategori eklendi!"});
             };
 
             const getThemeClasses = () => {
                 switch(appTheme) {
                     case 'light': return { bg: 'bg-slate-50', text: 'text-slate-900', card: 'bg-white border-slate-200 shadow-xl', input: 'bg-slate-100 border-slate-300 text-slate-900', nav: 'bg-white/90 border-slate-200' };
-                    case 'neon': return { bg: 'bg-zinc-950', text: 'text-cyan-400', card: 'bg-black border-cyan-900 shadow-[0_0_15px_rgba(34,211,238,0.1)]', input: 'bg-black border-cyan-900 text-cyan-400 focus:border-cyan-400 focus:shadow-[0_0_10px_rgba(34,211,238,0.5)]', nav: 'bg-black/90 border-cyan-900/50' };
-                    case 'dark': 
-                    default: return { bg: 'bg-zinc-950', text: 'text-white', card: 'bg-zinc-900 border-zinc-800', input: 'bg-zinc-900 border-zinc-800 text-white focus:border-white', nav: 'bg-zinc-950/95 border-white/5' };
+                    case 'neon': return { bg: 'bg-zinc-950', text: 'text-cyan-400', card: 'bg-black border-cyan-900 shadow-[0_0_15px_rgba(34,211,238,0.1)]', input: 'bg-black border-cyan-900 text-cyan-400 focus:border-cyan-400', nav: 'bg-black/90 border-cyan-900/50' };
+                    case 'dark': default: return { bg: 'bg-zinc-950', text: 'text-white', card: 'bg-zinc-900 border-zinc-800', input: 'bg-zinc-900 border-zinc-800 text-white focus:border-white', nav: 'bg-zinc-950/95 border-white/5' };
                 }
             };
             const t = getThemeClasses();
 
-            // UYGULAMA ANA YAPISI (Siyah Ekran Hatası Çözüldü!)
             return (
                 <div className={`max-w-md mx-auto h-screen ${t.bg} ${t.text} relative flex flex-col overflow-hidden shadow-2xl theme-transition`}>
                     
-                    {/* KİLİT EKRANI */}
                     {isLocked ? (
-                        <div className="h-full flex flex-col items-center justify-center px-10 relative z-50">
+                        <div className="h-full flex flex-col items-center justify-center px-10 relative z-50 animate-in fade-in">
                             <Icon name="lock" size={48} className="mb-8 opacity-50" />
                             <h2 className="text-2xl font-black mb-10 tracking-tight">Kilitli Cüzdan</h2>
-                            
                             <div className="flex gap-4 mb-12">
                                 {[0, 1, 2, 3].map(i => <div key={i} className={`w-4 h-4 rounded-full border-2 transition-all duration-300 ${enteredPin.length > i ? (appTheme === 'light' ? 'bg-slate-900 border-slate-900 scale-125' : 'bg-white border-white scale-125') : 'border-current opacity-30'}`} />)}
                             </div>
-                            
                             <div className="grid grid-cols-3 gap-6 w-full max-w-[280px] mb-10">
                                 {[1, 2, 3, 4, 5, 6, 7, 8, 9, 'Sil', 0, 'X'].map(val => (
                                     <button key={val} onClick={() => {
                                         if (val === 'Sil') setEnteredPin(enteredPin.slice(0, -1));
                                         else if (val === 'X') setEnteredPin('');
                                         else {
-                                            const updated = enteredPin + val;
-                                            setEnteredPin(updated);
+                                            const updated = enteredPin + val; setEnteredPin(updated);
                                             if(updated.length === 4) {
-                                                if(updated === appPin) { 
-                                                    setIsLocked(false); 
-                                                    setEnteredPin(''); 
-                                                } else { 
-                                                    setTimeout(() => setEnteredPin(''), 300); 
-                                                }
+                                                if(updated === appPin) { setIsLocked(false); setEnteredPin(''); } 
+                                                else { setTimeout(() => setEnteredPin(''), 300); }
                                             }
                                         }
                                     }} className={`w-full aspect-square rounded-full flex items-center justify-center text-xl font-bold active:scale-90 transition ${typeof val === 'number' ? t.card : 'opacity-50 text-sm uppercase'}`}>
-                                        {val === 'X' ? <Icon name="x" size={20} className="mx-auto"/> : val}
+                                        {val === 'X' ? <Icon name="x" size={20}/> : val}
                                     </button>
                                 ))}
                             </div>
+                            <button onClick={() => setShowForgotPin(true)} className="text-xs font-bold opacity-50 underline">Şifremi Unuttum</button>
 
-                            {/* ŞİFREMİ UNUTTUM BUTONU */}
-                            <button onClick={() => setShowForgotPin(true)} className="text-xs font-bold opacity-50 hover:opacity-100 transition underline underline-offset-4">
-                                Şifremi Unuttum
-                            </button>
-
-                            {/* ŞİFREMİ UNUTTUM MODALI */}
                             {showForgotPin && (
-                                <div className="absolute inset-0 z-[100] bg-black/90 backdrop-blur-md flex items-center justify-center p-8 animate-in fade-in text-white">
-                                    <div className={`${t.card} border-2 border-red-500/30 p-8 rounded-[32px] w-full max-w-sm text-center shadow-2xl`}>
-                                        <Icon name="alert-circle" size={40} className="text-red-500 mx-auto mb-4" />
-                                        <h3 className="text-xl font-black mb-4">Şifremi Unuttum</h3>
-                                        
-                                        {appPinHint && (
-                                            <div className="bg-white/5 border border-white/10 p-4 rounded-2xl mb-6">
-                                                <p className="text-[10px] uppercase tracking-widest opacity-50 mb-1">Şifre İpucunuz</p>
-                                                <p className="font-bold text-sm">{appPinHint}</p>
-                                            </div>
-                                        )}
-                                        
-                                        <p className="opacity-60 text-xs mb-8 leading-relaxed">
-                                            Güvenliğiniz için şifrenizi biz dahil kimse göremez. Şifrenizi hatırlayamıyorsanız cüzdanı sıfırlayabilirsiniz. <b>Bu işlem tüm kartlarınızı silecektir!</b>
-                                        </p>
-                                        
+                                <div className="absolute inset-0 z-[130] bg-black/95 flex items-center justify-center p-8 animate-in fade-in">
+                                    <div className={`${t.card} border-2 border-red-500/30 p-8 rounded-[32px] w-full max-w-sm text-center`}>
+                                        <h3 className="text-xl font-black mb-4">Kurtarma</h3>
+                                        {appPinHint && <div className="bg-white/5 p-4 rounded-2xl mb-6 text-sm"><b>İpucu:</b> {appPinHint}</div>}
+                                        <p className="opacity-60 text-xs mb-8">Şifreyi hatırlayamıyorsanız tüm verileri silerek cüzdanı sıfırlayabilirsiniz.</p>
                                         <div className="flex flex-col gap-3">
-                                            <button onClick={() => { localStorage.clear(); window.location.reload(); }} className="w-full bg-red-600 text-white font-bold py-4 rounded-xl active:scale-95 transition text-sm">
-                                                CÜZDANI SIFIRLA
-                                            </button>
-                                            <button onClick={() => setShowForgotPin(false)} className={`w-full py-4 rounded-xl font-bold active:scale-95 transition text-sm border ${t.input} text-white`}>
-                                                İPTAL
-                                            </button>
+                                            <button onClick={() => { localStorage.clear(); window.location.reload(); }} className="w-full bg-red-600 text-white font-bold py-4 rounded-xl">CÜZDANI SIFIRLA</button>
+                                            <button onClick={() => setShowForgotPin(false)} className={`w-full py-4 rounded-xl font-bold border ${t.input}`}>İPTAL</button>
                                         </div>
                                     </div>
                                 </div>
                             )}
                         </div>
                     ) : (
-                        // ANA UYGULAMA
                         <>
                             <main className="flex-1 overflow-y-auto px-6 pb-24 pt-12 no-scrollbar">
-                                
-                                {/* CÜZDAN SEKMESİ */}
                                 {activeTab === 'wallet' && (
                                     <>
                                         <div className="flex justify-between items-center mb-10">
-                                            <div><h1 className="text-4xl font-black tracking-tighter">Cüzdanım</h1></div>
-                                            <button onClick={() => setActiveTab('add')} className={`w-12 h-12 rounded-full flex items-center justify-center hover:scale-105 active:scale-95 transition shadow-lg ${appTheme === 'light' ? 'bg-slate-900 text-white' : (appTheme === 'neon' ? 'bg-cyan-500 text-black shadow-[0_0_15px_rgba(34,211,238,0.6)]' : 'bg-white text-black')}`}><Icon name="plus" /></button>
+                                            <h1 className="text-4xl font-black tracking-tighter">Cüzdanım</h1>
+                                            <button onClick={() => setActiveTab('add')} className={`w-12 h-12 rounded-full flex items-center justify-center shadow-lg active:scale-95 transition ${appTheme === 'light' ? 'bg-slate-900 text-white' : (appTheme === 'neon' ? 'bg-cyan-500 text-black shadow-[0_0_15px_rgba(34,211,238,0.6)]' : 'bg-white text-black')}`}><Icon name="plus" /></button>
                                         </div>
                                         <div className="relative">
                                             {cards.map((card, i) => (
                                                 <div key={card.id} onClick={() => setSelectedCard(card)} className="h-52 rounded-[28px] p-6 mb-[-140px] shadow-[0_10px_40px_rgba(0,0,0,0.5)] bg-gradient-to-br border border-white/20 transition-transform active:scale-95 cursor-pointer relative text-white" style={{ top: `${i * 0}px`, backgroundImage: `linear-gradient(to bottom right, ${card.color.split(' ')[0].replace('from-', '')}, ${card.color.split(' ')[1].replace('to-', '')})`, zIndex: i }}>
                                                     <div className="flex justify-between items-start">
                                                         <div><p className="text-[10px] font-black opacity-60 uppercase mb-1">{card.issuer}</p><h3 className="text-2xl font-bold tracking-tight">{card.name}</h3></div>
-                                                        <Icon name={card.icon} size={32} className="opacity-80" />
+                                                        {card.brandLogo ? <img src={card.brandLogo} className="h-8 max-w-[80px] object-contain bg-white/20 p-1 rounded-lg" /> : <Icon name={card.icon} size={32} className="opacity-80" />}
                                                     </div>
                                                     <div className="mt-auto pt-16 flex justify-between items-end">
-                                                        <div>
-                                                            <p className="font-mono text-sm tracking-widest opacity-90">{card.details}</p>
-                                                            <p className="text-[10px] font-bold mt-2 uppercase opacity-60">{card.ownerName}</p>
-                                                        </div>
-                                                        {card.photo && <Icon name="image" size={16} className="opacity-40 mb-1" />}
+                                                        <div><p className="font-mono text-sm tracking-widest opacity-90">{card.details}</p><p className="text-[10px] font-bold mt-2 uppercase opacity-60">{card.ownerName}</p></div>
+                                                        {card.photo && <Icon name="image" size={16} className="opacity-40" />}
                                                     </div>
                                                 </div>
                                             ))}
-                                            {cards.length === 0 && <div className="text-center py-40 opacity-30"><Icon name="wallet" size={64} className="mx-auto mb-4" /><p className="font-bold text-xs uppercase tracking-widest">Cüzdan Boş</p></div>}
+                                            {cards.length === 0 && <div className="text-center py-40 opacity-30 flex flex-col items-center"><Icon name="wallet" size={64} className="mb-4" /><p className="font-bold text-xs uppercase tracking-widest">Cüzdan Boş</p></div>}
                                         </div>
                                     </>
                                 )}
 
-                                {/* KART EKLE SEKMESİ */}
                                 {activeTab === 'add' && (
-                                    <div className="animate-in fade-in duration-300 relative">
+                                    <div className="animate-in fade-in duration-300">
                                         <div className="flex justify-between items-center mb-8">
                                             <h1 className="text-3xl font-black">Yeni Kart</h1>
                                             <input type="file" accept=".npmwallet" ref={importInputRef} onChange={handleImportFile} className="hidden" />
-                                            <button onClick={() => importInputRef.current.click()} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition ${t.card} border`}>
-                                                <Icon name="download" size={14}/> İçe Aktar
-                                            </button>
+                                            <button onClick={() => importInputRef.current.click()} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition ${t.card} border`}><Icon name="download" size={14}/> İçe Aktar</button>
                                         </div>
-
                                         <div className="flex flex-wrap gap-2 mb-6">
                                             {allCategories.map(cat => (
                                                 <button key={cat.id} onClick={() => setNewCard({...newCard, categoryId: cat.id})} className={`px-4 py-2 rounded-2xl border-2 flex items-center gap-2 transition ${newCard.categoryId === cat.id ? (appTheme === 'neon' ? 'border-cyan-400 bg-cyan-900/30 text-cyan-400' : 'border-current opacity-100') : 'border-transparent opacity-40 bg-zinc-800/30'}`}>
@@ -390,251 +342,156 @@
                                                 </button>
                                             ))}
                                         </div>
-
                                         <div className="space-y-4 mb-8">
-                                            <input placeholder="Kurum/Marka Adı" className={`w-full p-5 rounded-2xl outline-none transition uppercase font-bold text-sm border-2 ${t.input}`} value={newCard.issuer} onChange={e => setNewCard({...newCard, issuer: e.target.value})} />
-                                            <input placeholder="Kartın/Biletin Başlığı" className={`w-full p-5 rounded-2xl outline-none transition font-bold text-sm border-2 ${t.input}`} value={newCard.name} onChange={e => setNewCard({...newCard, name: e.target.value})} />
-                                            <input placeholder="İsim Soyisim" className={`w-full p-5 rounded-2xl outline-none transition uppercase font-bold text-sm border-2 ${t.input}`} value={newCard.ownerName} onChange={e => setNewCard({...newCard, ownerName: e.target.value.toUpperCase()})} />
-                                            <input placeholder="Numara / Bilet Kodu" className={`w-full p-5 rounded-2xl outline-none transition font-mono text-sm border-2 ${t.input}`} value={newCard.details} onChange={e => setNewCard({...newCard, details: e.target.value})} />
-
+                                            <input placeholder="Kurum/Marka Adı" className={`w-full p-5 rounded-2xl outline-none border-2 ${t.input}`} value={newCard.issuer} onChange={e => setNewCard({...newCard, issuer: e.target.value})} />
+                                            <input placeholder="Kart Başlığı" className={`w-full p-5 rounded-2xl outline-none border-2 ${t.input}`} value={newCard.name} onChange={e => setNewCard({...newCard, name: e.target.value})} />
+                                            <input placeholder="İsim Soyisim" className={`w-full p-5 rounded-2xl outline-none border-2 uppercase ${t.input}`} value={newCard.ownerName} onChange={e => setNewCard({...newCard, ownerName: e.target.value.toUpperCase()})} />
+                                            <input placeholder="Bilet No / Kart No" className={`w-full p-5 rounded-2xl outline-none font-mono border-2 ${t.input}`} value={newCard.details} onChange={e => setNewCard({...newCard, details: e.target.value})} />
                                             <div className={`${t.card} border-dashed p-4 rounded-2xl flex items-center justify-between border-2`}>
                                                 <div className="flex items-center gap-3">
-                                                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center opacity-50`}><Icon name="camera" size={20}/></div>
-                                                    <div>
-                                                        <p className="text-xs font-bold">Fotoğraf / Bilet Yükle</p>
-                                                        <p className="text-[9px] opacity-60">Fotoğraf yoksa QR otomatik üretilir</p>
-                                                    </div>
+                                                    <Icon name="camera" size={20} className="opacity-50"/>
+                                                    <div><p className="text-xs font-bold">Görsel / Bilet</p><p className="text-[9px] opacity-60">Fotoğraf seçin</p></div>
                                                 </div>
                                                 <input type="file" accept="image/*" ref={fileInputRef} onChange={handleImageUpload} className="hidden" />
-                                                <button onClick={() => fileInputRef.current.click()} className={`px-4 py-2 rounded-xl text-xs font-bold active:scale-95 transition border ${appTheme === 'neon' ? 'border-cyan-900 bg-black text-cyan-400' : 'bg-current text-black dark:text-white dark:bg-zinc-800'}`}>
-                                                    {newCard.photo ? 'DEĞİŞTİR' : 'SEÇ'}
-                                                </button>
+                                                <button onClick={() => fileInputRef.current.click()} className={`px-4 py-2 rounded-xl text-xs font-bold active:scale-95 transition border ${appTheme === 'neon' ? 'border-cyan-900 text-cyan-400' : 'bg-current text-white dark:bg-zinc-800'}`}>{newCard.photo ? 'TAMAM ✓' : 'SEÇ'}</button>
                                             </div>
                                         </div>
-
                                         <div className="mb-8">
-                                            <p className="text-[10px] font-bold opacity-50 uppercase tracking-widest mb-3 ml-1">Renk Paleti</p>
                                             <div className="flex gap-3 overflow-x-auto pb-2 custom-scrollbar">
-                                                {CARD_COLORS.map(c => (
-                                                    <button key={c} type="button" onClick={() => setNewCard({...newCard, color: c})} className={`w-12 h-12 rounded-2xl shrink-0 bg-gradient-to-br ${c} transition-all duration-300 ${newCard.color === c ? 'ring-2 ring-current ring-offset-4 ring-offset-transparent scale-110' : 'opacity-40 hover:opacity-100'}`} />
-                                                ))}
+                                                {CARD_COLORS.map(c => <button key={c} type="button" onClick={() => setNewCard({...newCard, color: c})} className={`w-12 h-12 rounded-2xl shrink-0 bg-gradient-to-br ${c} transition-all ${newCard.color === c ? 'ring-2 ring-current ring-offset-4 scale-110' : 'opacity-40'}`} />)}
                                             </div>
                                         </div>
-
                                         <button onClick={() => { 
-                                            if(!newCard.name || !newCard.details) { setAlertData({title: "Eksik Bilgi", message: "Lütfen en azından Başlık ve Numarayı doldurun."}); return; }
-                                            const catIcon = allCategories.find(c => c.id === newCard.categoryId)?.icon || 'credit-card';
-                                            setCards([{...newCard, id: Date.now().toString(), icon: catIcon}, ...cards]); 
-                                            setActiveTab('wallet'); 
-                                            setNewCard({ categoryId: 'payment', issuer: '', name: '', ownerName: '', details: '', color: 'from-zinc-800 to-black', photo: null });
-                                        }} className={`w-full py-5 rounded-[24px] font-black text-lg active:scale-95 transition shadow-lg ${appTheme === 'light' ? 'bg-slate-900 text-white' : (appTheme === 'neon' ? 'bg-cyan-500 text-black shadow-[0_0_20px_rgba(34,211,238,0.5)]' : 'bg-white text-black')}`}>CÜZDANA EKLE</button>
+                                            if(!newCard.name || !newCard.details) return;
+                                            setCards([{...newCard, id: Date.now().toString(), icon: allCategories.find(c => c.id === newCard.categoryId)?.icon || 'credit-card'}, ...cards]); 
+                                            setActiveTab('wallet'); setNewCard({ categoryId: 'payment', issuer: '', name: '', ownerName: '', details: '', color: 'from-zinc-800 to-black', photo: null });
+                                        }} className={`w-full py-5 rounded-[24px] font-black text-lg active:scale-95 transition ${appTheme === 'light' ? 'bg-slate-900 text-white' : (appTheme === 'neon' ? 'bg-cyan-500 text-black shadow-[0_0_15px_rgba(34,211,238,0.5)]' : 'bg-white text-black')}`}>CÜZDANA EKLE</button>
                                     </div>
                                 )}
 
-                                {/* KURUMSAL PANEL SEKMESİ */}
                                 {activeTab === 'corporate' && (
                                     <div className="animate-in fade-in duration-300">
                                         <div className="flex justify-between items-center mb-8">
-                                            <div><h1 className="text-3xl font-black text-blue-500">Kurumsal B2B</h1><p className="text-[10px] font-bold opacity-50 uppercase tracking-widest">Toplu Üretim Paneli</p></div>
-                                            <button onClick={() => setActiveTab('settings')} className="opacity-50 hover:opacity-100"><Icon name="x"/></button>
+                                            <h1 className="text-3xl font-black text-blue-500 uppercase">Kurumsal</h1>
+                                            <button onClick={() => setActiveTab('settings')}><Icon name="x"/></button>
                                         </div>
-
                                         <div className="space-y-6">
                                             <div className={`${t.card} p-5 rounded-3xl border-2`}>
-                                                <h3 className="text-xs font-black uppercase opacity-60 mb-4 tracking-widest">Kart Temel Şablonu</h3>
-                                                
-                                                <div className="flex flex-wrap gap-2 mb-4">
-                                                    {allCategories.map(cat => (
-                                                        <button key={cat.id} onClick={() => setCorpForm({...corpForm, categoryId: cat.id})} className={`px-4 py-2 rounded-xl border-2 flex items-center gap-2 transition ${corpForm.categoryId === cat.id ? 'border-blue-500 text-blue-500 bg-blue-500/10' : 'border-transparent opacity-40 bg-zinc-800/30'}`}>
-                                                            <Icon name={cat.icon} size={14} /><span className="text-[10px] font-black uppercase">{cat.name}</span>
-                                                        </button>
-                                                    ))}
-                                                </div>
-
-                                                <input placeholder="Marka / Kurum Adı" className={`w-full p-4 rounded-xl outline-none font-bold text-sm border-2 mb-3 ${t.input}`} value={corpForm.issuer} onChange={e => setCorpForm({...corpForm, issuer: e.target.value})} />
-                                                <input placeholder="Kampanya / Bilet Başlığı" className={`w-full p-4 rounded-xl outline-none font-bold text-sm border-2 mb-3 ${t.input}`} value={corpForm.name} onChange={e => setCorpForm({...corpForm, name: e.target.value})} />
-                                                
-                                                <div className="flex items-center justify-between bg-zinc-900 border border-zinc-800 p-3 rounded-xl mb-3">
-                                                    <div className="flex items-center gap-2 text-white">
-                                                        <Icon name="image" size={16}/> <span className="text-xs font-bold">Marka Logosu (Ops)</span>
-                                                    </div>
+                                                <input placeholder="Marka" className={`w-full p-4 rounded-xl outline-none font-bold border-2 mb-3 ${t.input}`} value={corpForm.issuer} onChange={e => setCorpForm({...corpForm, issuer: e.target.value})} />
+                                                <input placeholder="Bilet Adı" className={`w-full p-4 rounded-xl outline-none font-bold border-2 mb-3 ${t.input}`} value={corpForm.name} onChange={e => setCorpForm({...corpForm, name: e.target.value})} />
+                                                <div className="flex items-center justify-between p-3 bg-zinc-900 rounded-xl mb-3">
+                                                    <span className="text-xs font-bold">Logo</span>
                                                     <input type="file" accept="image/*" ref={corpLogoRef} onChange={handleCorpLogUpload} className="hidden"/>
-                                                    <button onClick={() => corpLogoRef.current.click()} className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-black">{corpForm.brandLogo ? 'YÜKLENDİ' : 'SEÇ'}</button>
+                                                    <button onClick={() => corpLogoRef.current.click()} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-xs">SEÇ</button>
                                                 </div>
-
-                                                <p className="text-[10px] font-bold opacity-50 uppercase tracking-widest mb-2">Marka Rengi</p>
-                                                <div className="flex gap-2 overflow-x-auto pb-2 custom-scrollbar">
-                                                    {CARD_COLORS.map(c => (
-                                                        <button key={c} onClick={() => setCorpForm({...corpForm, color: c})} className={`w-10 h-10 rounded-xl shrink-0 bg-gradient-to-br ${c} transition-all ${corpForm.color === c ? 'ring-2 ring-blue-500 scale-110' : 'opacity-40'}`} />
-                                                    ))}
+                                                <div className="flex items-center justify-between mb-4 bg-zinc-900 p-3 rounded-xl">
+                                                    <label className="text-xs font-bold uppercase">Adet:</label>
+                                                    <input type="number" min="1" max="500" className="w-20 p-2 rounded-lg bg-black text-white text-center font-bold outline-none border border-zinc-700" value={bulkAmount} onChange={e => setBulkAmount(e.target.value)} />
                                                 </div>
-                                            </div>
-
-                                            <div className={`${t.card} p-5 rounded-3xl border-2`}>
-                                                <h3 className="text-xs font-black uppercase opacity-60 mb-4 tracking-widest">Toplu Veri Aktarımı</h3>
-                                                
-                                                <div className="flex items-center justify-between mb-4 bg-zinc-900 border border-zinc-800 p-3 rounded-xl">
-                                                    <label className="text-xs font-bold text-white uppercase tracking-widest">Üretilecek Adet:</label>
-                                                    <input type="number" min="1" max="500" className="w-20 p-2 rounded-lg bg-black text-white text-center font-bold outline-none border border-zinc-700 focus:border-blue-500" value={bulkAmount} onChange={e => setBulkAmount(e.target.value)} />
-                                                </div>
-
-                                                <textarea placeholder="Müşteri İsimleri (Her satıra 1 isim)&#10;Boş bırakırsanız müşteri cüzdanına eklerken kendisi ismini girer." className={`w-full p-4 rounded-xl outline-none text-xs border-2 mb-4 h-24 resize-none custom-scrollbar ${t.input}`} value={corpNamesText} onChange={e => setCorpNamesText(e.target.value)}></textarea>
-                                                
-                                                <div className="flex items-center justify-between bg-zinc-900 border border-zinc-800 p-4 rounded-xl mb-2">
-                                                    <div>
-                                                        <p className="text-xs font-bold text-white flex items-center gap-2"><Icon name="qr-code" size={16}/> Özel QR / Foto</p>
-                                                        <p className="text-[9px] text-zinc-500 mt-1">Görsel seçmezseniz sistem QR'ı otomatik üretir.</p>
-                                                    </div>
+                                                <textarea placeholder="İsimler (Satır satır)" className={`w-full p-4 rounded-xl outline-none text-xs border-2 mb-4 h-24 ${t.input}`} value={corpNamesText} onChange={e => setCorpNamesText(e.target.value)}></textarea>
+                                                <div className="flex items-center justify-between p-4 bg-zinc-900 rounded-xl mb-2">
+                                                    <span className="text-xs font-bold">QR Fotoğrafları</span>
                                                     <input type="file" accept="image/*" multiple ref={corpQRsRef} onChange={handleCorpQRsUpload} className="hidden"/>
-                                                    <button onClick={() => corpQRsRef.current.click()} className="bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-black shrink-0">{corpQRs.length > 0 ? `${corpQRs.length} ADET` : 'SEÇ'}</button>
+                                                    <button onClick={() => corpQRsRef.current.click()} className="bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs">{corpQRs.length > 0 ? `${corpQRs.length} ADET` : 'YÜKLE'}</button>
                                                 </div>
                                             </div>
-
-                                            <button onClick={generateBulkCards} className="w-full bg-blue-600 text-white py-5 rounded-2xl font-black text-lg active:scale-95 transition shadow-lg shadow-blue-900/50">TOPLU ÜRET (GENERATE)</button>
-
+                                            <button onClick={generateBulkCards} className="w-full bg-blue-600 text-white py-5 rounded-2xl font-black active:scale-95">TOPLU ÜRET</button>
                                             {generatedCorpCards.length > 0 && (
-                                                <div className="mt-8">
-                                                    <h3 className="text-sm font-black mb-4 flex justify-between">Üretilen Kartlar <span className="text-blue-500">{generatedCorpCards.length}</span></h3>
-                                                    <div className="space-y-3">
-                                                        {generatedCorpCards.map((c, idx) => (
-                                                            <div key={idx} className={`${t.card} p-4 rounded-2xl border flex justify-between items-center`}>
-                                                                <div>
-                                                                    <p className="font-bold text-sm">{c.ownerName || "İsimsiz Şablon"}</p>
-                                                                    <p className="text-[10px] opacity-60">{c.photo ? "Özel Görselli" : "Otomatik QR"}</p>
-                                                                </div>
-                                                                <button onClick={() => exportCard(c)} className="bg-zinc-800 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2"><Icon name="download" size={14}/> İndir</button>
-                                                            </div>
-                                                        ))}
-                                                    </div>
+                                                <div className="mt-8 space-y-3">
+                                                    <h3 className="text-sm font-black">Üretilenler ({generatedCorpCards.length})</h3>
+                                                    {generatedCorpCards.map((c, idx) => (
+                                                        <div key={idx} className={`${t.card} p-4 rounded-2xl border flex justify-between items-center`}>
+                                                            <span className="text-sm font-bold truncate max-w-[150px]">{c.ownerName || "İsimsiz"}</span>
+                                                            <button onClick={() => exportCard(c)} className="bg-zinc-800 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2"><Icon name="download" size={14}/> İndir</button>
+                                                        </div>
+                                                    ))}
                                                 </div>
                                             )}
                                         </div>
                                     </div>
                                 )}
 
-                                {/* AYARLAR SEKMESİ */}
                                 {activeTab === 'settings' && (
-                                    <div className="text-center py-6 animate-in fade-in">
-                                        <h1 className="text-3xl font-black mb-8 text-left">Ayarlar</h1>
-                                        
+                                    <div className="py-6 animate-in fade-in">
+                                        <h1 className="text-3xl font-black mb-8 text-left uppercase">Ayarlar</h1>
                                         <div className="mb-8 text-left">
-                                            <p className="text-[10px] font-bold opacity-50 uppercase tracking-widest mb-3">Uygulama Teması</p>
+                                            <p className="text-[10px] font-bold opacity-50 uppercase mb-3">Görünüm</p>
                                             <div className="grid grid-cols-3 gap-3">
-                                                {[
-                                                    { id: 'dark', name: 'Karanlık', icon: 'moon' },
-                                                    { id: 'light', name: 'Aydınlık', icon: 'sun' },
-                                                    { id: 'neon', name: 'Siberpunk', icon: 'zap' }
-                                                ].map(theme => (
-                                                    <button key={theme.id} onClick={() => setAppTheme(theme.id)} className={`p-4 rounded-2xl border-2 flex flex-col items-center gap-2 transition ${appTheme === theme.id ? (appTheme === 'neon' ? 'border-cyan-400 bg-cyan-900/20 text-cyan-400' : 'border-current') : 'border-transparent opacity-50'}`}>
-                                                        <Icon name={theme.icon} size={24}/>
-                                                        <span className="text-[10px] font-bold uppercase">{theme.name}</span>
+                                                {[{id:'dark',n:'Karanlık',i:'moon'},{id:'light',n:'Aydınlık',i:'sun'},{id:'neon',n:'Neon',i:'zap'}].map(theme => (
+                                                    <button key={theme.id} onClick={() => setAppTheme(theme.id)} className={`p-4 rounded-2xl border-2 flex flex-col items-center gap-2 transition ${appTheme === theme.id ? 'border-current' : 'border-transparent opacity-50'}`}>
+                                                        <Icon name={theme.i} size={24}/><span className="text-[10px] font-bold uppercase">{theme.n}</span>
                                                     </button>
                                                 ))}
                                             </div>
                                         </div>
-
                                         <div className={`mb-8 p-6 rounded-3xl border text-left ${t.card}`}>
-                                            <h3 className="text-sm font-black mb-4">Yeni Kategori Ekle</h3>
+                                            <h3 className="text-sm font-black mb-4 uppercase">Kategori Ekle</h3>
                                             <div className="flex gap-2 mb-4">
-                                                <input placeholder="Kategori Adı (Örn: Spor, Okul)" className={`flex-1 p-3 rounded-xl outline-none font-bold text-xs border-2 ${t.input}`} value={newCatName} onChange={e => setNewCatName(e.target.value)} />
-                                                <button onClick={addCustomCategory} className="bg-emerald-600 text-white px-4 rounded-xl font-bold text-xs active:scale-95">EKLE</button>
+                                                <input placeholder="Kategori Adı" className={`flex-1 p-3 rounded-xl outline-none font-bold text-xs border-2 ${t.input}`} value={newCatName} onChange={e => setNewCatName(e.target.value)} />
+                                                <button onClick={addCustomCategory} className="bg-emerald-600 text-white px-4 rounded-xl font-bold text-xs">EKLE</button>
                                             </div>
-                                            <p className="text-[10px] font-bold opacity-50 uppercase tracking-widest mb-2">İkon Seçin</p>
                                             <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
-                                                {CUSTOM_ICONS.map(icon => (
-                                                    <button key={icon} onClick={() => setNewCatIcon(icon)} className={`p-3 rounded-xl border-2 transition ${newCatIcon === icon ? 'border-current opacity-100' : 'border-transparent opacity-40 bg-zinc-800/20'}`}>
-                                                        <Icon name={icon} size={18} />
-                                                    </button>
-                                                ))}
+                                                {CUSTOM_ICONS.map(icon => <button key={icon} onClick={() => setNewCatIcon(icon)} className={`p-3 rounded-xl border-2 transition ${newCatIcon === icon ? 'border-current' : 'border-transparent opacity-30 bg-zinc-800/20'}`}><Icon name={icon} size={18} /></button>)}
                                             </div>
                                         </div>
-
-                                        <div className={`rounded-3xl border overflow-hidden divide-y ${t.card} ${appTheme === 'light' ? 'divide-slate-200' : (appTheme === 'neon' ? 'divide-cyan-900 border-cyan-900' : 'divide-zinc-800 border-zinc-800')}`}>
-                                            <button onClick={() => setPinSetupStep(1)} className="w-full p-6 flex justify-between items-center font-bold transition opacity-80 hover:opacity-100"><span>Cüzdan Şifresi Belirle</span><Icon name="shield"/></button>
-                                            {appPin && <button onClick={() => { setAppPin(null); setAlertData({title: "Kaldırıldı", message: "Uygulama şifresi kaldırıldı."}); }} className="w-full p-6 text-red-500 font-bold text-left transition">Şifreyi Kaldır</button>}
-                                            <button onClick={() => setShowResetConfirm(true)} className="w-full p-6 text-red-500 font-bold text-left transition">Tüm Kartları Sil</button>
-                                            
-                                            <button onClick={() => setShowCorpLogin(true)} className="w-full p-6 flex justify-between items-center font-bold text-blue-500 bg-blue-500/5 transition"><span>Kurumsal Panel</span><Icon name="building-2"/></button>
+                                        <div className={`rounded-3xl border overflow-hidden divide-y ${t.card} border-zinc-800`}>
+                                            <button onClick={() => setPinSetupStep(1)} className="w-full p-6 flex justify-between items-center font-bold"><span>Cüzdan Şifresi</span><Icon name="shield"/></button>
+                                            {appPin && <button onClick={() => { setAppPin(null); setAppPinHint(''); setAlertData({title:"Tamam", message:"Şifre kaldırıldı."}); }} className="w-full p-6 text-red-500 font-bold text-left">Şifreyi Kaldır</button>}
+                                            <button onClick={() => setShowResetConfirm(true)} className="w-full p-6 text-red-500 font-bold text-left">Verileri Sıfırla</button>
+                                            <button onClick={() => setShowCorpLogin(true)} className="w-full p-6 flex justify-between items-center font-bold text-blue-500 bg-blue-500/5"><span>Kurumsal</span><Icon name="building-2"/></button>
                                         </div>
-                                        <p className="mt-16 opacity-30 text-[10px] font-black tracking-[0.5em] uppercase">NPM Wallet Engine B2B</p>
                                     </div>
                                 )}
-
                             </main>
 
-                            {/* --- MODALLAR --- */}
-
-                            {/* PIN BELİRLEME ADIMLARI (Ana Yapı İçinde) */}
+                            {/* PIN BELİRLEME MODALI */}
                             {pinSetupStep > 0 && (
-                                <div className={`absolute inset-0 z-[120] ${t.bg} ${t.text} flex flex-col items-center justify-center px-10 animate-in slide-in-from-bottom theme-transition`}>
-                                    <button onClick={() => { setPinSetupStep(0); setEnteredPin(''); setTempPin(''); setPinHintInput(''); }} className="absolute top-12 right-10 opacity-50 hover:opacity-100"><Icon name="x" size={32}/></button>
+                                <div className={`absolute inset-0 z-[140] ${t.bg} ${t.text} flex flex-col items-center justify-center px-10 animate-in slide-in-from-bottom`}>
+                                    <button onClick={() => { setPinSetupStep(0); setEnteredPin(''); setTempPin(''); setPinHintInput(''); }} className="absolute top-12 right-10 opacity-50"><Icon name="x" size={32}/></button>
                                     
                                     {pinSetupStep === 3 ? (
-                                        <div className="w-full max-w-xs text-center">
+                                        <div className="w-full max-w-xs text-center animate-in fade-in">
                                             <Icon name="help-circle" size={48} className="mb-6 opacity-50 mx-auto" />
-                                            <h2 className="text-2xl font-black mb-2">Şifre İpucu</h2>
-                                            <p className="opacity-60 mb-8 text-xs leading-relaxed">Şifrenizi unutursanız size hatırlatacak kısa bir ipucu yazın (İsteğe bağlı).</p>
+                                            <h2 className="text-2xl font-black mb-2 uppercase">İpucu Kaydet</h2>
+                                            <p className="opacity-60 mb-8 text-xs">Şifreyi hatırlatacak bir şey yazın.</p>
                                             
                                             <input 
                                                 type="text" 
-                                                placeholder="Örn: Doğum yılım, ilk arabam..." 
+                                                placeholder="Buraya yazın..." 
                                                 className={`w-full p-4 rounded-xl outline-none font-bold text-sm border-2 mb-6 text-center ${t.input}`} 
                                                 value={pinHintInput} 
                                                 onChange={e => setPinHintInput(e.target.value)} 
-                                                maxLength={30}
+                                                autoFocus
                                             />
                                             
                                             <button onClick={() => {
-                                                setAppPin(tempPin);
-                                                setAppPinHint(pinHintInput);
-                                                setPinSetupStep(0);
-                                                setEnteredPin('');
-                                                setTempPin('');
-                                                setPinHintInput('');
-                                                setAlertData({title: "Başarılı", message: "Cüzdan şifreniz başarıyla oluşturuldu."});
-                                            }} className={`w-full py-4 rounded-xl font-black text-sm uppercase tracking-widest active:scale-95 transition ${appTheme === 'neon' ? 'bg-cyan-600 text-black' : (appTheme === 'light' ? 'bg-slate-900 text-white' : 'bg-white text-black')}`}>
-                                                KAYDET VE BİTİR
-                                            </button>
+                                                setAppPin(tempPin); setAppPinHint(pinHintInput); setPinSetupStep(0); setEnteredPin(''); setTempPin(''); setPinHintInput('');
+                                                setAlertData({title: "Başarılı", message: "Cüzdan şifreniz oluşturuldu."});
+                                            }} className={`w-full py-4 rounded-xl font-black active:scale-95 transition ${appTheme === 'neon' ? 'bg-cyan-500 text-black' : 'bg-white text-black'}`}>KAYDET VE BİTİR</button>
                                         </div>
                                     ) : (
                                         <>
                                             <Icon name="shield" size={48} className="mb-8 opacity-50" />
-                                            <h2 className="text-2xl font-black mb-2">{pinSetupStep === 1 ? 'Cüzdan Şifresi' : 'Şifreyi Doğrula'}</h2>
-                                            <p className="opacity-60 mb-10 text-center text-sm">{pinSetupStep === 1 ? 'Uygulama için 4 haneli bir şifre girin.' : 'Lütfen şifreyi tekrar girin.'}</p>
-                                            
-                                            <div className="flex gap-4 mb-12">
-                                                {[0, 1, 2, 3].map(i => <div key={i} className={`w-4 h-4 rounded-full border-2 transition-all ${enteredPin.length > i ? (appTheme === 'light' ? 'bg-slate-900 border-slate-900 scale-125' : 'bg-white border-white scale-125') : 'border-current opacity-30'}`} />)}
+                                            <h2 className="text-2xl font-black mb-2 uppercase">{pinSetupStep === 1 ? 'Şifre Belirle' : 'Doğrula'}</h2>
+                                            <div className="flex gap-4 mb-12 mt-10">
+                                                {[0, 1, 2, 3].map(i => <div key={i} className={`w-4 h-4 rounded-full border-2 transition-all ${enteredPin.length > i ? 'bg-white border-white scale-125' : 'border-current opacity-30'}`} />)}
                                             </div>
-                                            
                                             <div className="grid grid-cols-3 gap-6 w-full max-w-[280px]">
-                                                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 'Sil', 0, 'İptal'].map(val => (
+                                                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 'Sil', 0, 'X'].map(val => (
                                                     <button key={val} onClick={() => {
                                                         if (val === 'Sil') setEnteredPin(enteredPin.slice(0, -1));
-                                                        else if (val === 'İptal') { setPinSetupStep(0); setEnteredPin(''); setTempPin(''); }
+                                                        else if (val === 'X') setEnteredPin('');
                                                         else {
-                                                            const updated = enteredPin + val;
-                                                            setEnteredPin(updated);
+                                                            const updated = enteredPin + val; setEnteredPin(updated);
                                                             if(updated.length === 4) {
-                                                                if (pinSetupStep === 1) {
-                                                                    setTempPin(updated);
-                                                                    setEnteredPin('');
-                                                                    setPinSetupStep(2);
-                                                                } else if (pinSetupStep === 2) {
-                                                                    if (updated === tempPin) {
-                                                                        setPinSetupStep(3); // İpucu Adımına Geç
-                                                                        setEnteredPin('');
-                                                                    } else {
-                                                                        setAlertData({title: "Hata", message: "Şifreler uyuşmuyor. Lütfen tekrar deneyin."});
-                                                                        setPinSetupStep(1);
-                                                                        setEnteredPin('');
-                                                                        setTempPin('');
-                                                                    }
+                                                                if (pinSetupStep === 1) { setTempPin(updated); setEnteredPin(''); setPinSetupStep(2); } 
+                                                                else if (pinSetupStep === 2) { 
+                                                                    if (updated === tempPin) { setPinSetupStep(3); setEnteredPin(''); } 
+                                                                    else { setAlertData({title:"Hata", message:"Şifreler uyuşmuyor!"}); setPinSetupStep(1); setEnteredPin(''); }
                                                                 }
                                                             }
                                                         }
-                                                    }} className={`w-full aspect-square rounded-full flex items-center justify-center text-xl font-bold active:scale-90 transition ${typeof val === 'number' ? t.card : 'opacity-50 text-sm uppercase'}`}>
-                                                        {val}
-                                                    </button>
+                                                    }} className={`w-full aspect-square rounded-full flex items-center justify-center text-xl font-bold active:scale-90 transition ${typeof val === 'number' ? t.card : 'opacity-50 text-sm uppercase'}`}>{val}</button>
                                                 ))}
                                             </div>
                                         </>
@@ -642,58 +499,51 @@
                                 </div>
                             )}
 
-                            {/* TÜM KARTLARI SİL MODALI (Canvas Uyumlu) */}
                             {showResetConfirm && (
-                                <div className="absolute inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-8 animate-in fade-in text-white">
-                                    <div className={`${t.card} border-2 border-red-500/50 p-8 rounded-3xl w-full max-w-sm text-center shadow-2xl`}>
-                                        <Icon name="alert-triangle" size={40} className="text-red-500 mx-auto mb-4" />
-                                        <h3 className="text-xl font-bold mb-2">Tüm Kartları Sil</h3>
-                                        <p className="opacity-60 text-sm mb-8 leading-relaxed">Cüzdanınızdaki tüm kartlar kalıcı olarak silinecek. Bu işlem geri alınamaz. Emin misiniz?</p>
+                                <div className="absolute inset-0 z-[150] bg-black/90 flex items-center justify-center p-8 animate-in fade-in">
+                                    <div className={`${t.card} border-2 border-red-500/50 p-8 rounded-3xl w-full max-w-sm text-center`}>
+                                        <h3 className="text-xl font-bold mb-2 uppercase">Emin Misin?</h3>
+                                        <p className="opacity-60 text-sm mb-8">Tüm verileriniz silinecektir.</p>
                                         <div className="flex gap-3">
-                                            <button onClick={() => { setCards([]); setShowResetConfirm(false); setAlertData({title:"Başarılı", message:"Tüm kartlar silindi."}); }} className="flex-1 bg-red-600 text-white font-bold py-4 rounded-xl active:scale-95 transition">SİL</button>
-                                            <button onClick={() => setShowResetConfirm(false)} className={`flex-1 font-bold py-4 rounded-xl active:scale-95 transition border ${t.input} text-white`}>İPTAL</button>
+                                            <button onClick={() => { setCards([]); setShowResetConfirm(false); }} className="flex-1 bg-red-600 text-white font-bold py-4 rounded-xl">SİL</button>
+                                            <button onClick={() => setShowResetConfirm(false)} className={`flex-1 font-bold py-4 rounded-xl border ${t.input}`}>VAZGEÇ</button>
                                         </div>
                                     </div>
                                 </div>
                             )}
 
-                            {/* KART DETAY MODALI */}
                             {selectedCard && (
                                 <div className={`absolute inset-0 z-50 ${t.bg} flex flex-col p-6 pt-12 animate-in slide-in-from-bottom duration-300 overflow-y-auto no-scrollbar`}>
                                     <div className="flex justify-between items-center mb-8">
-                                        <button onClick={() => { setSelectedCard(null); setShowDeleteConfirm(false); }} className="opacity-60 flex items-center gap-2 font-bold hover:opacity-100 transition"><Icon name="chevron-left" /> GERİ</button>
-                                        <button onClick={() => exportCard(selectedCard)} className={`p-3 rounded-full border transition ${t.card} shadow-lg`} title="NPM5 Formatında Dışa Aktar"><Icon name="upload" size={20} /></button>
+                                        <button onClick={() => { setSelectedCard(null); setShowDeleteConfirm(false); }} className="opacity-60 flex items-center gap-2 font-bold"><Icon name="chevron-left" /> GERİ</button>
+                                        <button onClick={() => exportCard(selectedCard)} className={`p-3 rounded-full border transition ${t.card}`}><Icon name="upload" size={20} /></button>
                                     </div>
-                                    
                                     <div className={`h-56 shrink-0 rounded-[32px] p-8 shadow-2xl bg-gradient-to-br ${selectedCard.color} text-white mb-8 border border-white/20 relative flex flex-col`}>
                                         <div className="flex justify-between items-start">
                                             <div><p className="text-[10px] font-black opacity-60 uppercase mb-1">{selectedCard.issuer}</p><h3 className="text-3xl font-bold tracking-tighter">{selectedCard.name}</h3></div>
-                                            {selectedCard.brandLogo ? <img src={selectedCard.brandLogo} className="h-10 max-w-[100px] object-contain bg-white/20 p-1.5 rounded-xl backdrop-blur-md shadow-lg" /> : <Icon name={selectedCard.icon} size={40} className="opacity-80" />}
+                                            {selectedCard.brandLogo ? <img src={selectedCard.brandLogo} className="h-10 max-w-[100px] object-contain bg-white/20 p-1.5 rounded-xl backdrop-blur-md" /> : <Icon name={selectedCard.icon} size={40} className="opacity-80" />}
                                         </div>
-                                        <div className="mt-auto pt-8"><p className="font-mono text-xl tracking-widest">{selectedCard.details}</p><p className="text-xs font-bold uppercase opacity-60">{selectedCard.ownerName || "İsimsiz Kullanıcı"}</p></div>
+                                        <div className="mt-auto pt-8"><p className="font-mono text-xl tracking-widest">{selectedCard.details}</p><p className="text-xs font-bold uppercase opacity-60">{selectedCard.ownerName || "İsimsiz"}</p></div>
                                     </div>
-                                    
                                     {selectedCard.photo ? (
-                                        <div className={`${t.card} border p-4 rounded-[32px] flex flex-col items-center gap-4 mb-8`}>
-                                            <p className="text-[10px] font-bold opacity-40 uppercase tracking-widest pt-2">Kayıtlı Bilet / Kod Görseli</p>
-                                            <img src={selectedCard.photo} className="w-full object-contain rounded-2xl" alt="Bilet Görseli" />
+                                        <div className={`${t.card} border p-4 rounded-[32px] flex flex-col items-center mb-8`}>
+                                            <img src={selectedCard.photo} className="w-full object-contain rounded-2xl" />
                                         </div>
                                     ) : (
                                         <div className="grid grid-cols-2 gap-4 mb-10 shrink-0">
-                                            <button onClick={() => setShowNfcModal(true)} className={`${t.card} p-8 rounded-[32px] border flex flex-col items-center gap-3 active:scale-95 transition`}><Icon name="nfc" className={appTheme === 'neon' ? 'text-cyan-400' : 'text-blue-500'} /><span className="text-[10px] font-black uppercase tracking-widest opacity-80">NFC TEMASSIZ</span></button>
-                                            <button onClick={() => setShowQrModal(true)} className={`${t.card} p-8 rounded-[32px] border flex flex-col items-center gap-3 active:scale-95 transition`}><Icon name="qr-code" className={appTheme === 'neon' ? 'text-cyan-400' : 'text-emerald-500'} /><span className="text-[10px] font-black uppercase tracking-widest opacity-80">QR KOD ÜRET</span></button>
+                                            <button onClick={() => setShowNfcModal(true)} className={`${t.card} p-8 rounded-[32px] border flex flex-col items-center gap-3 active:scale-95 transition`}><Icon name="nfc" className="text-blue-500" /><span className="text-[10px] font-black uppercase">NFC</span></button>
+                                            <button onClick={() => setShowQrModal(true)} className={`${t.card} p-8 rounded-[32px] border flex flex-col items-center gap-3 active:scale-95 transition`}><Icon name="qr-code" className="text-emerald-500" /><span className="text-[10px] font-black uppercase">QR</span></button>
                                         </div>
                                     )}
-
                                     {!showDeleteConfirm ? (
-                                        <button onClick={() => setShowDeleteConfirm(true)} className="text-red-500 font-black text-[10px] tracking-[0.3em] uppercase mt-auto pb-10 transition text-center w-full">KARTI SİL</button>
+                                        <button onClick={() => setShowDeleteConfirm(true)} className="text-red-500 font-black text-[10px] uppercase mt-auto pb-10 text-center w-full">KARTI SİL</button>
                                     ) : (
                                         <div className="mt-auto pb-6">
                                             <div className={`${t.card} border-red-500/50 p-5 rounded-[24px] flex flex-col gap-4 animate-in zoom-in-95 border-2`}>
-                                                <p className="text-center font-bold text-sm">Bu kartı silmek istediğinize emin misiniz?</p>
+                                                <p className="text-center font-bold text-sm text-white">Emin misiniz?</p>
                                                 <div className="flex gap-3">
-                                                    <button onClick={() => { setCards(cards.filter(c => c.id !== selectedCard.id)); setSelectedCard(null); setShowDeleteConfirm(false); }} className="flex-1 bg-red-600 text-white py-4 rounded-xl font-bold text-xs uppercase tracking-widest active:scale-95">SİL</button>
-                                                    <button onClick={() => setShowDeleteConfirm(false)} className={`flex-1 py-4 rounded-xl font-bold text-xs uppercase tracking-widest active:scale-95 border ${t.input}`}>İPTAL</button>
+                                                    <button onClick={() => { setCards(cards.filter(c => c.id !== selectedCard.id)); setSelectedCard(null); setShowDeleteConfirm(false); }} className="flex-1 bg-red-600 text-white py-4 rounded-xl font-bold text-xs uppercase active:scale-95">SİL</button>
+                                                    <button onClick={() => setShowDeleteConfirm(false)} className={`flex-1 py-4 rounded-xl font-bold text-xs uppercase border ${t.input}`}>İPTAL</button>
                                                 </div>
                                             </div>
                                         </div>
@@ -701,9 +551,8 @@
                                 </div>
                             )}
 
-                            {/* QR MODAL */}
                             {showQrModal && (
-                                <div className={`absolute inset-0 z-[60] bg-black/90 backdrop-blur flex flex-col items-center justify-center p-10 animate-in zoom-in-95`}>
+                                <div className={`absolute inset-0 z-[60] bg-black flex flex-col items-center justify-center p-10 animate-in zoom-in-95`}>
                                     <button onClick={() => setShowQrModal(false)} className="absolute top-12 right-10 text-white"><Icon name="x" size={32}/></button>
                                     <div className="bg-white p-10 rounded-[40px] flex flex-col items-center shadow-2xl">
                                         <img src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(selectedCard.details)}`} className="w-56 h-56 mb-8" />
@@ -713,31 +562,48 @@
                                 </div>
                             )}
 
-                            {/* NFC MODAL */}
                             {showNfcModal && (
                                 <div className="absolute inset-0 z-[60] bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center animate-in fade-in">
                                     <button onClick={() => setShowNfcModal(false)} className="absolute top-12 right-10 text-white opacity-50 hover:opacity-100"><Icon name="x" size={32}/></button>
                                     <div className={`w-32 h-32 rounded-full flex items-center justify-center mb-8 relative ${appTheme === 'neon' ? 'bg-cyan-900/30' : 'bg-blue-600/20'}`}>
-                                        <div className={`absolute inset-0 rounded-full animate-ping border-2 ${appTheme === 'neon' ? 'border-cyan-400' : 'bg-blue-500/20'}`}></div>
-                                        <Icon name="nfc" size={64} className={`relative z-10 ${appTheme === 'neon' ? 'text-cyan-400' : 'text-blue-500'}`} />
+                                        <Icon name="nfc" size={64} className={`${appTheme === 'neon' ? 'text-cyan-400' : 'text-blue-500'}`} />
                                     </div>
-                                    <h2 className="text-2xl font-black mb-2 text-white">Okutulmaya Hazır</h2>
-                                    <p className="text-zinc-400 text-center px-12 text-sm">Telefonunuzun arkasını okuyucuya yaklaştırın.</p>
+                                    <h2 className="text-2xl font-black mb-2 text-white uppercase">NFC</h2>
+                                    <p className="text-zinc-400 text-center px-12 text-sm">Telefonunuzu yaklaştırın.</p>
                                 </div>
                             )}
 
-                            {/* ALERT MODALI */}
                             {alertData && (
-                                <div className="absolute inset-0 z-[90] bg-black/80 backdrop-blur-sm flex items-center justify-center p-8 animate-in fade-in">
+                                <div className="absolute inset-0 z-[160] bg-black/80 flex items-center justify-center p-8 animate-in fade-in">
                                     <div className={`${t.card} border-2 p-8 rounded-3xl w-full max-w-sm text-center shadow-2xl`}>
-                                        <h3 className="text-xl font-bold mb-2">{alertData.title}</h3>
-                                        <p className="opacity-60 text-sm mb-8 leading-relaxed">{alertData.message}</p>
-                                        <button onClick={() => setAlertData(null)} className={`w-full py-4 rounded-xl active:scale-95 transition font-bold uppercase tracking-widest ${appTheme === 'light' ? 'bg-slate-900 text-white' : (appTheme === 'neon' ? 'bg-cyan-500 text-black shadow-[0_0_15px_rgba(34,211,238,0.4)]' : 'bg-white text-black')}`}>Tamam</button>
+                                        <h3 className="text-xl font-bold mb-2 uppercase">{alertData.title}</h3>
+                                        <p className="opacity-60 text-sm mb-8">{alertData.message}</p>
+                                        <button onClick={() => setAlertData(null)} className={`w-full py-4 rounded-xl active:scale-95 transition font-bold uppercase ${appTheme === 'light' ? 'bg-slate-900 text-white' : 'bg-white text-black'}`}>Tamam</button>
                                     </div>
                                 </div>
                             )}
 
-                            {/* ALT MENÜ */}
+                            {namePromptCard && (
+                                <div className="absolute inset-0 z-[170] bg-black/90 backdrop-blur-xl flex flex-col items-center justify-center p-8 animate-in slide-in-from-bottom">
+                                    <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-[32px] w-full max-w-sm text-center shadow-2xl relative overflow-hidden text-white">
+                                        <h3 className="text-xl font-black mb-2 uppercase">İsim Girin</h3>
+                                        <p className="text-zinc-400 text-xs mb-8">Cüzdanınıza kaydetmek için isminizi belirtin.</p>
+                                        {savedUserName && (
+                                            <div className="bg-zinc-950 border border-zinc-800 p-4 rounded-2xl mb-4 text-left">
+                                                <p className="text-[10px] text-zinc-500 font-bold uppercase mb-1">Kayıtlı Profil</p>
+                                                <p className="text-white font-black">{savedUserName}</p>
+                                                <button onClick={() => handleNamePromptSubmit(true)} className="w-full mt-3 bg-blue-600 text-white font-bold py-2 rounded-xl text-xs uppercase">KULLAN</button>
+                                            </div>
+                                        )}
+                                        <input placeholder="İSMİNİZ" className="w-full bg-black border border-zinc-800 p-4 rounded-2xl text-white outline-none focus:border-white text-sm font-bold uppercase text-center mb-6" value={tempNameInput} onChange={e => setTempNameInput(e.target.value)} />
+                                        <div className="flex gap-2">
+                                            <button onClick={() => handleNamePromptSubmit(false)} className="flex-1 bg-white text-black font-black py-4 rounded-2xl active:scale-95 transition text-sm">TAMAM</button>
+                                            <button onClick={() => setNamePromptCard(null)} className="px-5 bg-zinc-800 text-zinc-400 font-bold py-4 rounded-2xl text-xs">İPTAL</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
                             {activeTab !== 'corporate' && (
                                 <nav className={`absolute bottom-0 w-full backdrop-blur-xl border-t flex justify-around py-5 pb-9 px-8 z-40 transition-colors ${t.nav}`}>
                                     {[{id:'wallet',i:'wallet',l:'CÜZDAN'},{id:'add',i:'plus',l:'EKLE'},{id:'settings',i:'settings',l:'AYARLAR'}].map(tab => (
@@ -748,6 +614,20 @@
                                 </nav>
                             )}
                         </>
+                    )}
+
+                    {showCorpLogin && (
+                        <div className="absolute inset-0 z-[180] bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-8 animate-in fade-in">
+                            <div className="bg-zinc-900 border border-blue-500/30 p-8 rounded-3xl w-full max-w-sm text-center shadow-2xl text-white">
+                                <Icon name="building-2" size={48} className="text-blue-500 mx-auto mb-4" />
+                                <h3 className="text-xl font-black mb-2 uppercase">Yönetici</h3>
+                                <input type="password" placeholder="Şifre" className="w-full bg-black border border-zinc-800 p-4 rounded-xl text-center text-white font-mono tracking-widest outline-none focus:border-blue-500 mb-6 mt-6" value={corpLoginPin} onChange={e => setCorpLoginPin(e.target.value)} />
+                                <div className="flex gap-3">
+                                    <button onClick={() => { if (corpLoginPin === 'NPM5') { setShowCorpLogin(false); setActiveTab('corporate'); setCorpLoginPin(''); } else { setAlertData({title: "Hata", message: "Şifre yanlış."}); setCorpLoginPin(''); } }} className="flex-1 bg-blue-600 text-white font-bold py-4 rounded-xl">GİRİŞ</button>
+                                    <button onClick={() => setShowCorpLogin(false)} className="px-6 bg-zinc-800 text-white font-bold py-4 rounded-xl">İPTAL</button>
+                                </div>
+                            </div>
+                        </div>
                     )}
                 </div>
             );
