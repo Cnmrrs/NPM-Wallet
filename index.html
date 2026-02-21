@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>NPM Wallet Pro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: black; -webkit-tap-highlight-color: transparent; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #27272a; border-radius: 10px; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+        
+        // Lucide ikonlarını React içinde kullanmak için yardımcı bileşen
+        const Icon = ({ name, size = 24, className = "" }) => {
+            useEffect(() => { lucide.createIcons(); }, [name]);
+            return <i data-lucide={name} style={{ width: size, height: size }} className={className}></i>;
+        };
+
+        const INITIAL_CATEGORIES = [
+            { id: 'payment', name: 'Banka/Kredi', icon: 'credit-card' },
+            { id: 'transit', name: 'Ulaşım/Metro', icon: 'bus' },
+            { id: 'id', name: 'Kimlik/Belge', icon: 'user' },
+            { id: 'loyalty', name: 'Restoran/Yemek', icon: 'coffee' }
+        ];
+
+        function App() {
+            const [cards, setCards] = useState(() => JSON.parse(localStorage.getItem('npm_v3_cards') || '[]'));
+            const [appPin, setAppPin] = useState(localStorage.getItem('npm_v3_pin'));
+            
+            const [activeTab, setActiveTab] = useState('wallet');
+            const [isLocked, setIsLocked] = useState(!!appPin);
+            const [enteredPin, setEnteredPin] = useState('');
+            const [selectedCard, setSelectedCard] = useState(null);
+            
+            // UI State
+            const [showQrModal, setShowQrModal] = useState(false);
+            const [showNfcModal, setShowNfcModal] = useState(false);
+            const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+            const [showNfcInfo, setShowNfcInfo] = useState(false);
+            const [alertData, setAlertData] = useState(null); // Özel alert modalı { title, message }
+            
+            // AI State
+            const [aiInput, setAiInput] = useState('');
+            const [isAiLoading, setIsAiLoading] = useState(false);
+            const [showAiInput, setShowAiInput] = useState(false);
+            
+            // PIN Setup State
+            const [pinSetupStep, setPinSetupStep] = useState(0); // 0: kapalı, 1: yeni gir, 2: tekrarla
+            const [tempPin, setTempPin] = useState('');
+
+            const [newCard, setNewCard] = useState({ categoryId: 'payment', issuer: '', name: '', ownerName: '', details: '', color: 'from-zinc-800 to-black' });
+
+            useEffect(() => { localStorage.setItem('npm_v3_cards', JSON.stringify(cards)); }, [cards]);
+            useEffect(() => { if(appPin) localStorage.setItem('npm_v3_pin', appPin); else localStorage.removeItem('npm_v3_pin'); }, [appPin]);
+
+            const handlePinInput = (num) => {
+                const updated = enteredPin + num;
+                setEnteredPin(updated);
+                
+                if (updated.length === 4) {
+                    if (isLocked) {
+                        if (updated === appPin) { setIsLocked(false); setEnteredPin(''); }
+                        else { setTimeout(() => setEnteredPin(''), 300); }
+                    } 
+                    else if (pinSetupStep === 1) {
+                        setTempPin(updated);
+                        setEnteredPin('');
+                        setPinSetupStep(2);
+                    } 
+                    else if (pinSetupStep === 2) {
+                        if (updated === tempPin) {
+                            setAppPin(tempPin);
+                            setPinSetupStep(0);
+                            setEnteredPin('');
+                            setTempPin('');
+                            setAlertData({ title: "Başarılı", message: "Uygulama PIN kodunuz başarıyla oluşturuldu." });
+                        } else {
+                            setAlertData({ title: "Hata", message: "Girdiğiniz PIN kodları uyuşmuyor. Lütfen tekrar deneyin." });
+                            setPinSetupStep(1);
+                            setEnteredPin('');
+                            setTempPin('');
+                        }
+                    }
+                }
+            };
+
+            const renderPinPad = (title, subtitle, isSetup = false) => (
+                <div className={`flex flex-col items-center justify-center px-10 ${isSetup ? 'absolute inset-0 z-[70] bg-zinc-950 animate-in slide-in-from-bottom' : 'h-screen bg-black text-white'}`}>
+                    <Icon name={isSetup ? "shield" : "lock"} size={48} className={isSetup ? "text-blue-500 mb-8" : "text-zinc-800 mb-8"} />
+                    <h2 className="text-2xl font-black mb-2 tracking-tight text-white">{title}</h2>
+                    <p className="text-zinc-500 mb-10 text-center text-sm">{subtitle}</p>
+                    <div className="flex gap-4 mb-12">
+                        {[0, 1, 2, 3].map(i => <div key={i} className={`w-4 h-4 rounded-full border-2 ${enteredPin.length > i ? 'bg-white border-white' : 'border-zinc-800'}`} />)}
+                    </div>
+                    <div className="grid grid-cols-3 gap-6 w-full max-w-[280px]">
+                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 'Sil', 0, isSetup ? 'İptal' : 'X'].map(val => (
+                            <button key={val} onClick={() => {
+                                if (val === 'Sil') setEnteredPin(enteredPin.slice(0, -1));
+                                else if (val === 'İptal') { setPinSetupStep(0); setEnteredPin(''); setTempPin(''); }
+                                else if (val === 'X') { /* Kilitliyken X işlevsiz */ }
+                                else handlePinInput(val.toString());
+                            }} className={`w-full aspect-square rounded-full flex items-center justify-center text-xl font-bold active:scale-90 transition ${typeof val === 'number' ? 'bg-zinc-900 text-white' : 'text-zinc-600 text-sm uppercase'}`}>
+                                {val === 'X' ? <Icon name="lock" size={20} className="mx-auto opacity-50"/> : val}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            );
+
+            if (isLocked) return renderPinPad("Kilitli Cüzdan", "Devam etmek için şifrenizi girin", false);
+
+            // Google Canvas Uyumlu NFC Okuma
+            const scanNfcCard = async () => {
+                if ('NDEFReader' in window) {
+                    try {
+                        const ndef = new window.NDEFReader();
+                        await ndef.scan();
+                        setAlertData({ title: "NFC Aktif", message: "Okuyucu açıldı! Lütfen kartı veya kimliği telefonun arkasına yaklaştırın." });
+                        ndef.addEventListener("reading", ({ serialNumber }) => {
+                            if (serialNumber) {
+                                setNewCard(prev => ({ ...prev, details: serialNumber.replace(/:/g, '').toUpperCase() }));
+                                setAlertData({ title: "Başarılı", message: "Çip seri numarası eklendi!" });
+                            } else {
+                                setAlertData({ title: "Uyarı", message: "Kart algılandı ancak şifreleme nedeniyle okunamadı." });
+                            }
+                        });
+                    } catch (error) { 
+                        setAlertData({ title: "NFC Başlatılamadı", message: "Cihazınızda NFC'nin açık olduğundan emin olun. Hata: " + error.message }); 
+                    }
+                } else {
+                    setShowNfcInfo(true);
+                }
+            };
+
+            // GEMINI API ENTEGRASYONU: Akıllı Kart Doldurucu
+            const handleAiFill = async () => {
+                if (!aiInput.trim()) {
+                    setAlertData({ title: "Uyarı", message: "Lütfen kart bilgilerini içeren bir metin girin." });
+                    return;
+                }
+                
+                setIsAiLoading(true);
+                const apiKey = ""; // Sistem tarafından enjekte edilecek
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+                
+                const prompt = `Aşağıdaki serbest metni analiz et ve bir cüzdan kartı için gerekli bilgileri çıkar.
+Eğer isim yoksa boş bırak. Eğer kurum adı yoksa mantıklı bir tahmin yap veya boş bırak.
+Kategori türü şunlardan biri olmalı: 'payment' (kredi/banka kartı), 'transit' (ulaşım kartı), 'id' (kimlik/pasaport/ehliyet), 'loyalty' (sadakat/restoran/mağaza/öğrenci).
+
+Metin: "${aiInput}"`;
+
+                const payload = {
+                    contents: [{ parts: [{ text: prompt }] }],
+                    generationConfig: {
+                        responseMimeType: "application/json",
+                        responseSchema: {
+                            type: "OBJECT",
+                            properties: {
+                                issuer: { type: "STRING", description: "Kurum veya banka adı (örn: Garanti, İBB, Nüfus Müd.)" },
+                                name: { type: "STRING", description: "Kartın başlığı veya türü (örn: Bonus, İstanbulkart, T.C. Kimlik, Öğrenci Kartı)" },
+                                ownerName: { type: "STRING", description: "Kart sahibinin adı ve soyadı" },
+                                details: { type: "STRING", description: "Kart, belge veya seri numarası" },
+                                categoryId: { type: "STRING", enum: ["payment", "transit", "id", "loyalty"] }
+                            },
+                            required: ["issuer", "name", "ownerName", "details", "categoryId"]
+                        }
+                    },
+                    systemInstruction: {
+                        parts: [{ text: "Sen akıllı bir cüzdan asistanısın. Kullanıcının girdiği karmaşık metinden kart bilgilerini çıkar ve sadece JSON olarak döndür." }]
+                    }
+                };
+
+                const fetchWithRetry = async (retryCount = 0) => {
+                    const delays = [1000, 2000, 4000, 8000, 16000];
+                    try {
+                        const response = await fetch(url, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        });
+                        if (!response.ok) throw new Error('API Hatası');
+                        const data = await response.json();
+                        const result = JSON.parse(data.candidates[0].content.parts[0].text);
+                        
+                        setNewCard(prev => ({
+                            ...prev,
+                            issuer: result.issuer || prev.issuer,
+                            name: result.name || prev.name,
+                            ownerName: result.ownerName ? result.ownerName.toUpperCase() : prev.ownerName,
+                            details: result.details || prev.details,
+                            categoryId: result.categoryId || prev.categoryId
+                        }));
+                        
+                        setShowAiInput(false);
+                        setAiInput('');
+                        setAlertData({ title: "✨ Sihir Tamamlandı", message: "Yapay zeka kart bilgilerinizi başarıyla ayıkladı ve formu doldurdu!" });
+                    } catch (error) {
+                        if (retryCount < 5) {
+                            await new Promise(res => setTimeout(res, delays[retryCount]));
+                            return fetchWithRetry(retryCount + 1);
+                        }
+                        setAlertData({ title: "Hata", message: "Yapay zeka ile bağlantı kurulamadı. Lütfen tekrar deneyin." });
+                    }
+                };
+
+                await fetchWithRetry();
+                setIsAiLoading(false);
+            };
+
+            return (
+                <div className="max-w-md mx-auto h-screen bg-zinc-950 text-white relative flex flex-col overflow-hidden shadow-2xl">
+                    <main className="flex-1 overflow-y-auto px-6 pb-24 pt-12 no-scrollbar">
+                        
+                        {/* CÜZDAN SEKMESİ */}
+                        {activeTab === 'wallet' && (
+                            <>
+                                <div className="flex justify-between items-center mb-10">
+                                    <div><h1 className="text-4xl font-black tracking-tighter">Cüzdanım</h1><p className="text-[10px] font-bold text-zinc-600 tracking-widest uppercase">Yerel Saklama Aktif</p></div>
+                                    <button onClick={() => setActiveTab('add')} className="w-12 h-12 bg-white text-black rounded-full flex items-center justify-center hover:scale-105 active:scale-95 transition"><Icon name="plus" /></button>
+                                </div>
+                                <div className="relative">
+                                    {cards.map((card, i) => (
+                                        <div key={card.id} onClick={() => setSelectedCard(card)} className="h-52 rounded-[28px] p-6 mb-[-140px] shadow-[0_10px_40px_rgba(0,0,0,0.8)] bg-gradient-to-br border border-white/10 transition-transform active:scale-95 cursor-pointer relative" style={{ top: `${i * 0}px`, backgroundImage: `linear-gradient(to bottom right, ${card.color.split(' ')[0].replace('from-', '')}, ${card.color.split(' ')[1].replace('to-', '')})`, zIndex: i }}>
+                                            <div className="flex justify-between items-start">
+                                                <div><p className="text-[10px] font-black opacity-50 uppercase mb-1">{card.issuer}</p><h3 className="text-2xl font-bold tracking-tight">{card.name}</h3></div>
+                                                <Icon name={card.icon} size={32} className="opacity-60" />
+                                            </div>
+                                            <div className="mt-auto pt-16"><p className="font-mono text-sm tracking-widest opacity-80">{card.details}</p><p className="text-[10px] font-bold mt-2 uppercase opacity-40">{card.ownerName}</p></div>
+                                        </div>
+                                    ))}
+                                    {cards.length === 0 && <div className="text-center py-40 opacity-20"><Icon name="wallet" size={64} className="mx-auto mb-4" /><p className="font-bold text-xs uppercase tracking-widest">Cüzdan Boş</p></div>}
+                                </div>
+                            </>
+                        )}
+
+                        {/* KART EKLE SEKMESİ */}
+                        {activeTab === 'add' && (
+                            <div className="animate-in fade-in duration-300 relative">
+                                <div className="flex justify-between items-center mb-10">
+                                    <h1 className="text-3xl font-black">Yeni Kart</h1>
+                                    <div className="flex gap-2">
+                                        <button onClick={() => setShowAiInput(!showAiInput)} className={`p-2 rounded-full transition ${showAiInput ? 'bg-purple-600 text-white' : 'bg-zinc-900 text-purple-400 hover:text-purple-300'}`} title="Yapay Zeka ile Ekle">
+                                            <Icon name="sparkles" size={20}/>
+                                        </button>
+                                        <button onClick={() => setShowNfcInfo(true)} className="p-2 bg-zinc-900 rounded-full text-blue-400 hover:text-blue-300 transition"><Icon name="info" size={20}/></button>
+                                    </div>
+                                </div>
+                                
+                                {showAiInput && (
+                                    <div className="bg-purple-900/20 border border-purple-500/30 p-5 rounded-[24px] mb-8 animate-in slide-in-from-top-4">
+                                        <div className="flex items-center gap-2 mb-3">
+                                            <Icon name="sparkles" size={18} className="text-purple-400" />
+                                            <span className="text-xs font-bold text-purple-400 uppercase tracking-widest">✨ Akıllı Asistan</span>
+                                        </div>
+                                        <p className="text-[10px] text-zinc-400 mb-4 leading-relaxed">Karmaşık bir metin yapıştırın (Örn: "Garanti bankası kredi kartım 1234 5678, adım Ali Veli"), yapay zeka formu sizin için doldursun!</p>
+                                        <textarea 
+                                            className="w-full bg-zinc-950 border border-purple-900/50 rounded-xl p-3 text-white text-sm outline-none focus:border-purple-500 transition mb-3 custom-scrollbar h-24 resize-none"
+                                            placeholder="Metni buraya yapıştırın..."
+                                            value={aiInput}
+                                            onChange={e => setAiInput(e.target.value)}
+                                        />
+                                        <button 
+                                            onClick={handleAiFill}
+                                            disabled={isAiLoading}
+                                            className="w-full bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs uppercase tracking-widest py-3 rounded-xl transition flex items-center justify-center gap-2 disabled:opacity-50"
+                                        >
+                                            {isAiLoading ? <Icon name="loader" className="animate-spin" size={16} /> : <Icon name="wand-2" size={16} />}
+                                            {isAiLoading ? "ANALİZ EDİLİYOR..." : "✨ SİHİRLİ DOLDUR"}
+                                        </button>
+                                    </div>
+                                )}
+
+                                <div className="grid grid-cols-2 gap-3 mb-8">
+                                    {INITIAL_CATEGORIES.map(cat => (
+                                        <button key={cat.id} onClick={() => setNewCard({...newCard, categoryId: cat.id})} className={`p-4 rounded-2xl border-2 flex items-center gap-3 transition ${newCard.categoryId === cat.id ? 'border-white bg-white/10' : 'border-zinc-900 text-zinc-600'}`}>
+                                            <Icon name={cat.icon} size={18} /><span className="text-[10px] font-black uppercase truncate">{cat.name}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                                <div className="space-y-4 mb-8">
+                                    <input placeholder={newCard.categoryId === 'id' ? "KURUM (Örn: Nüfus Müd., Konsolosluk)" : "KURUM (İBB, BANKA, MEB)"} className="w-full bg-zinc-900 border border-zinc-800 p-5 rounded-2xl text-white outline-none focus:border-white transition uppercase font-bold text-sm" value={newCard.issuer} onChange={e => setNewCard({...newCard, issuer: e.target.value})} />
+                                    <input placeholder={newCard.categoryId === 'id' ? "BELGE TÜRÜ (Örn: T.C. Kimlik, Pasaport)" : "KART ADI (Örn: Öğrenci Kartı, Bonus)"} className="w-full bg-zinc-900 border border-zinc-800 p-5 rounded-2xl text-white outline-none focus:border-white transition font-bold text-sm" value={newCard.name} onChange={e => setNewCard({...newCard, name: e.target.value})} />
+                                    <input placeholder="İSİM SOYİSİM" className="w-full bg-zinc-900 border border-zinc-800 p-5 rounded-2xl text-white outline-none focus:border-white transition uppercase font-bold text-sm" value={newCard.ownerName} onChange={e => setNewCard({...newCard, ownerName: e.target.value.toUpperCase()})} />
+                                    
+                                    <div className="flex gap-2">
+                                        <input placeholder={newCard.categoryId === 'id' ? "T.C. NO / PASAPORT NO" : "KART NUMARASI / SERİ NO"} className="w-full bg-zinc-900 border border-zinc-800 p-5 rounded-2xl text-white outline-none focus:border-white transition font-mono text-sm" value={newCard.details} onChange={e => setNewCard({...newCard, details: e.target.value})} />
+                                        <button onClick={scanNfcCard} className="bg-blue-600 px-4 rounded-2xl text-white active:scale-95 transition flex flex-col items-center justify-center shadow-lg whitespace-nowrap">
+                                            <Icon name="nfc" size={20} />
+                                            <span className="text-[8px] font-bold mt-1">NFC OKU</span>
+                                        </button>
+                                    </div>
+                                </div>
+                                <button onClick={() => { 
+                                    if(!newCard.name || !newCard.details) { setAlertData({title: "Eksik Bilgi", message: "Lütfen en azından Kart Adı ve Numarasını doldurun."}); return; }
+                                    setCards([{...newCard, id: Date.now(), icon: INITIAL_CATEGORIES.find(c => c.id === newCard.categoryId).icon}, ...cards]); 
+                                    setActiveTab('wallet'); 
+                                    setNewCard({ categoryId: 'payment', issuer: '', name: '', ownerName: '', details: '', color: 'from-zinc-800 to-black' });
+                                }} className="w-full bg-white text-black py-5 rounded-[24px] font-black text-lg active:scale-95 transition">CÜZDANA KAYDET</button>
+                            </div>
+                        )}
+
+                        {/* AYARLAR SEKMESİ */}
+                        {activeTab === 'settings' && (
+                            <div className="text-center py-10">
+                                <h1 className="text-3xl font-black mb-10">Ayarlar</h1>
+                                <div className="bg-zinc-900 rounded-3xl border border-zinc-800 overflow-hidden divide-y divide-zinc-800">
+                                    <button onClick={() => setPinSetupStep(1)} className="w-full p-6 flex justify-between items-center font-bold hover:bg-zinc-800 transition"><span>PIN Kodu Belirle</span><Icon name="shield" className="text-zinc-500"/></button>
+                                    
+                                    {appPin && (
+                                        <button onClick={() => { 
+                                            // Canvas uyumlu özel silme onayı
+                                            setAppPin(null); 
+                                            setAlertData({title: "PIN Kaldırıldı", message: "Uygulama şifresi başarıyla kaldırıldı."}); 
+                                        }} className="w-full p-6 text-red-500 font-bold text-left hover:bg-zinc-800 transition">Şifreyi Kaldır</button>
+                                    )}
+                                </div>
+                                <p className="mt-20 opacity-10 text-[10px] font-black tracking-[0.5em] uppercase">NPM Wallet v4.0</p>
+                            </div>
+                        )}
+
+                        {/* PİN BELİRLEME EKRANI (Ayar üstüne biner) */}
+                        {pinSetupStep > 0 && renderPinPad(pinSetupStep === 1 ? "Yeni PIN Oluştur" : "PIN'i Doğrula", pinSetupStep === 1 ? "Uygulama için 4 haneli bir şifre girin" : "Şifreyi tekrar girin", true)}
+
+                    </main>
+
+                    {/* KART DETAY MODALI */}
+                    {selectedCard && (
+                        <div className="absolute inset-0 z-50 bg-black flex flex-col p-6 pt-12 animate-in slide-in-from-bottom duration-300">
+                            <button onClick={() => { setSelectedCard(null); setShowDeleteConfirm(false); }} className="text-zinc-500 flex items-center gap-2 font-bold mb-10 w-fit"><Icon name="chevron-left" /> GERİ</button>
+                            <div className="h-56 rounded-[32px] p-8 shadow-2xl bg-zinc-900 text-white mb-10 border border-white/5 relative">
+                                <div className="flex justify-between items-start">
+                                    <div><p className="text-[10px] font-black opacity-50 uppercase mb-1">{selectedCard.issuer}</p><h3 className="text-3xl font-bold tracking-tighter">{selectedCard.name}</h3></div>
+                                    <Icon name={selectedCard.icon} size={40} className="opacity-60" />
+                                </div>
+                                <div className="mt-auto pt-16"><p className="font-mono text-xl tracking-widest">{selectedCard.details}</p><p className="text-xs font-bold uppercase opacity-40">{selectedCard.ownerName}</p></div>
+                            </div>
+                            
+                            <div className="grid grid-cols-2 gap-4 mb-10">
+                                <button onClick={() => setShowNfcModal(true)} className="bg-zinc-900 p-8 rounded-[32px] border border-zinc-800 flex flex-col items-center gap-3 active:scale-95 transition"><Icon name="nfc" className="text-blue-500" /><span className="text-[10px] font-black uppercase tracking-widest text-zinc-600">NFC TEMASSIZ</span></button>
+                                <button onClick={() => setShowQrModal(true)} className="bg-zinc-900 p-8 rounded-[32px] border border-zinc-800 flex flex-col items-center gap-3 active:scale-95 transition"><Icon name="qr-code" className="text-emerald-500" /><span className="text-[10px] font-black uppercase tracking-widest text-zinc-600">QR KOD</span></button>
+                            </div>
+
+                            {/* Canvas Uyumlu Kart Silme Onayı */}
+                            {!showDeleteConfirm ? (
+                                <button onClick={() => setShowDeleteConfirm(true)} className="text-zinc-800 font-black text-[10px] tracking-[0.3em] uppercase mt-auto pb-10 hover:text-red-500 transition">KARTI SİL</button>
+                            ) : (
+                                <div className="mt-auto pb-6">
+                                    <div className="bg-zinc-900 border border-red-900/30 p-5 rounded-[24px] flex flex-col gap-4 animate-in zoom-in-95">
+                                        <p className="text-white text-center font-bold text-sm">Bu kartı silmek istediğinize emin misiniz?</p>
+                                        <div className="flex gap-3">
+                                            <button onClick={() => { setCards(cards.filter(c => c.id !== selectedCard.id)); setSelectedCard(null); setShowDeleteConfirm(false); }} className="flex-1 bg-red-600 text-white py-4 rounded-xl font-bold text-xs uppercase tracking-widest active:scale-95">SİL</button>
+                                            <button onClick={() => setShowDeleteConfirm(false)} className="flex-1 bg-zinc-800 text-white py-4 rounded-xl font-bold text-xs uppercase tracking-widest active:scale-95">İPTAL</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* QR MODAL */}
+                    {showQrModal && (
+                        <div className="absolute inset-0 z-[60] bg-black flex flex-col items-center justify-center p-10 animate-in zoom-in-95">
+                            <button onClick={() => setShowQrModal(false)} className="absolute top-12 right-10 text-white"><Icon name="x" size={32}/></button>
+                            <div className="bg-white p-10 rounded-[40px] flex flex-col items-center">
+                                <img src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(selectedCard.details)}`} className="w-56 h-56 mb-8" />
+                                <img src={`https://barcode.tec-it.com/barcode.ashx?data=${encodeURIComponent(selectedCard.details)}&code=Code128`} className="w-64 h-20 object-contain" />
+                            </div>
+                            <p className="mt-12 font-mono text-zinc-500 tracking-[0.5em] font-bold">{selectedCard.details}</p>
+                        </div>
+                    )}
+
+                    {/* NFC ÖDEME MODAL */}
+                    {showNfcModal && (
+                        <div className="absolute inset-0 z-[60] bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center animate-in fade-in">
+                            <button onClick={() => setShowNfcModal(false)} className="absolute top-12 right-10 text-zinc-500 hover:text-white"><Icon name="x" size={32}/></button>
+                            <div className="w-32 h-32 bg-blue-600/20 rounded-full flex items-center justify-center mb-8 relative">
+                                <div className="absolute inset-0 bg-blue-500/20 rounded-full animate-ping"></div>
+                                <Icon name="nfc" size={64} className="text-blue-500 relative z-10" />
+                            </div>
+                            <h2 className="text-2xl font-black mb-2 text-white">Okutulmaya Hazır</h2>
+                            <p className="text-zinc-500 text-center px-12 text-sm">Telefonunuzun arkasını okuyucuya yaklaştırın.</p>
+                        </div>
+                    )}
+
+                    {/* ÖZEL ALERT MODALI (Canvas Uyumlu) */}
+                    {alertData && (
+                        <div className="absolute inset-0 z-[90] bg-black/80 flex items-center justify-center p-8 animate-in fade-in">
+                            <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-3xl w-full max-w-sm text-center shadow-2xl">
+                                <h3 className="text-xl font-bold text-white mb-2">{alertData.title}</h3>
+                                <p className="text-zinc-400 text-sm mb-8 leading-relaxed">{alertData.message}</p>
+                                <button onClick={() => setAlertData(null)} className="w-full bg-blue-600 text-white font-bold py-4 rounded-xl active:scale-95 transition">Tamam</button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* NFC İNFO BİLGİ MODALI */}
+                    {showNfcInfo && (
+                        <div className="absolute inset-0 z-[80] bg-black/90 flex items-center justify-center p-8 animate-in fade-in">
+                            <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-[32px] w-full max-w-sm text-center shadow-2xl">
+                                <div className="w-16 h-16 bg-blue-500/10 rounded-full flex items-center justify-center mx-auto mb-6 text-blue-500">
+                                    <Icon name="info" size={32} />
+                                </div>
+                                <h3 className="text-xl font-black text-white mb-4 tracking-tight">NFC Bilgilendirmesi</h3>
+                                <p className="text-zinc-400 text-sm mb-8 leading-relaxed">
+                                    Web üzerinden NFC ile kart okuma özelliği, Apple güvenlik kısıtlamaları nedeniyle <b>iOS (iPhone) cihazlarda çalışmamaktadır.</b>
+                                    <br/><br/>
+                                    Bu özelliği yalnızca <b>Android</b> cihazlarda ve <b>Google Chrome</b> tarayıcısında kullanabilirsiniz.
+                                </p>
+                                <button onClick={() => setShowNfcInfo(false)} className="w-full bg-white text-black font-black py-4 rounded-2xl active:scale-95 transition">ANLADIM</button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ALT MENÜ */}
+                    <nav className="absolute bottom-0 w-full bg-zinc-950/95 backdrop-blur-xl border-t border-white/5 flex justify-around py-5 pb-9 px-8 z-40">
+                        {[{id:'wallet',i:'wallet',l:'CÜZDAN'},{id:'add',i:'plus',l:'EKLE'},{id:'settings',i:'settings',l:'AYARLAR'}].map(t => (
+                            <button key={t.id} onClick={() => {setActiveTab(t.id); setPinSetupStep(0);}} className={`flex flex-col items-center gap-1.5 transition-all ${activeTab === t.id && pinSetupStep === 0 ? 'text-white scale-110' : 'text-zinc-600'}`}>
+                                <Icon name={t.i} size={22} /><span className="text-[8px] font-black tracking-widest">{t.l}</span>
+                            </button>
+                        ))}
+                    </nav>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
